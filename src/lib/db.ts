@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Category, Macro, Profile } from './types';
+import type { Category, Macro, Merchant, OutboxEntry, Profile, Transaction } from './types';
 
 /** Coppie chiave/valore locali: es. data dell'ultima sincronizzazione. */
 export interface Meta {
@@ -14,15 +14,23 @@ export class QuadraDB extends Dexie {
   macros!: EntityTable<Macro, 'id'>;
   categories!: EntityTable<Category, 'id'>;
   meta!: EntityTable<Meta, 'key'>;
+  transactions!: EntityTable<Transaction, 'id'>;
+  merchants!: EntityTable<Merchant, 'id'>;
+  outbox!: EntityTable<OutboxEntry, 'key'>;
 
   constructor(userId: string) {
     super(`quadra-${userId}`);
-    // Quando si aggiungono tabelle o indici: nuova version(n), mai modificare questa.
+    // Quando si aggiungono tabelle o indici: nuova version(n), mai modificare le precedenti.
     this.version(1).stores({
       profile: 'id',
       macros: 'id, tx_kind, sort_order',
       categories: 'id, macro_id, sort_order',
       meta: 'key',
+    });
+    this.version(2).stores({
+      transactions: 'id, tx_date, merchant_id',
+      merchants: 'id',
+      outbox: 'key',
     });
   }
 }

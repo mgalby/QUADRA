@@ -1,155 +1,130 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useAuth } from '../auth/AuthProvider';
-import { openDb } from '../lib/db';
+import { BottomBar } from '../components/BottomBar';
+import { Donut, type DonutSlice } from '../components/Donut';
+import { SyncPill } from '../components/SyncPill';
+import type { QuadraDB } from '../lib/db';
+import { addMonths, monthLabel, monthRange, todayISO } from '../lib/dates';
+import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
-import { pullMasterData } from '../lib/sync';
-import type { Category, TxKind } from '../lib/types';
+import { formatMoney } from '../lib/money';
+import type { Nav } from '../lib/nav';
+import { donutSlices, summarize } from '../lib/stats';
 
-type SyncState = { status: 'syncing' } | { status: 'ok' } | { status: 'offline' } | { status: 'error'; msg: string };
+const OTHER_COLOR = '#8B93A0';
 
-export function Home({ userId, email }: { userId: string; email: string }) {
-  const { signOut } = useAuth();
-  const { t, locale, setLocale } = useI18n();
-  const db = useMemo(() => openDb(userId), [userId]);
-  const [sync, setSync] = useState<SyncState>({ status: 'syncing' });
+export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, currency, pending }: {
+  db: QuadraDB;
+  master: MasterData;
+  nav: Nav;
+  month: string;
+  setMonth: (m: string) => void;
+  onlyDisc: boolean;
+  setOnlyDisc: (v: boolean) => void;
+  currency: string;
+  pending: number;
+}) {
+  const { t, locale } = useI18n();
+  const [from, to] = monthRange(month);
+  const txs = useLiveQuery(() => db.transactions.where('tx_date').between(from, to, true, false).toArray(), [db, from, to]);
+  const money = (cents: number, sign = false) => formatMoney(cents, currency, locale, { sign });
 
-  // Si legge sempre dall'archivio locale: la schermata si aggiorna da sola quando cambia.
-  const profile = useLiveQuery(() => db.profile.get(userId), [db, userId]);
-  const macros = useLiveQuery(() => db.macros.orderBy('sort_order').toArray(), [db]);
-  const categories = useLiveQuery(() => db.categories.orderBy('sort_order').toArray(), [db]);
-  const lastPull = useLiveQuery(() => db.meta.get('last_pull'), [db]);
+  const summary = useMemo(() => summarize(txs ?? [], master.categoryById, todayISO(), onlyDisc), [txs, master.categoryById, onlyDisc]);
+  const pct = (cents: number) => (summary.shown > 0 ? Math.round((cents / summary.shown) * 100) : 0);
 
-  const runSync = useCallback(async () => {
-    if (!navigator.onLine) return setSync({ status: 'offline' });
-    setSync({ status: 'syncing' });
-    try {
-      await pullMasterData(db, userId);
-      setSync({ status: 'ok' });
-    } catch (e) {
-      setSync(navigator.onLine ? { status: 'error', msg: e instanceof Error ? e.message : String(e) } : { status: 'offline' });
-    }
-  }, [db, userId]);
-
-  useEffect(() => {
-    void runSync();
-    const onOnline = () => void runSync();
-    const onOffline = () => setSync({ status: 'offline' });
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
+  const slices: DonutSlice[] = donutSlices(summary.byMacro, summary.shown).map((s) => {
+    const macro = master.macroById.get(s.key);
+    const name = macro?.name ?? t('home.other');
+    return {
+      key: s.key,
+      share: s.share,
+      scheduledShare: s.scheduledCents / summary.shown,
+      color: macro?.color ?? OTHER_COLOR,
+      icon: macro?.icon ?? 'dots-three',
+      label: `${name}, ${Math.round(s.share * 100)}%`,
     };
-  }, [runSync]);
-
-  // la lingua salvata nel profilo vince su quella del browser
-  useEffect(() => {
-    if (profile && profile.locale !== locale) setLocale(profile.locale);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.locale]);
-
-  const byMacro = useMemo(() => {
-    const map = new Map<string, Category[]>();
-    for (const c of categories ?? []) {
-      if (c.deleted_at || c.archived) continue;
-      map.set(c.macro_id, [...(map.get(c.macro_id) ?? []), c]);
-    }
-    return map;
-  }, [categories]);
-
-  const visibleMacros = (macros ?? []).filter((m) => !m.deleted_at && !m.archived);
-  const catCount = [...byMacro.values()].reduce((n, list) => n + list.length, 0);
-  const time = lastPull
-    ? new Date(lastPull.value).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
-    : '';
-
-  const syncText =
-    sync.status === 'syncing' ? t('home.sync.syncing')
-    : sync.status === 'ok' ? t('home.sync.ok', { time })
-    : sync.status === 'offline' ? t('home.sync.offline')
-    : t('home.sync.error', { msg: sync.msg });
+  });
+  const openMacro = (key: string) => nav.tab({ name: 'movements', macroId: master.macroById.has(key) ? key : undefined });
+  const balance = summary.income - summary.expense;
+  const title = monthLabel(month, locale);
 
   return (
-    <main className="page">
+    <main className="page with-bar">
       <header className="topbar">
-        <h1>Quadra</h1>
-        <button type="button" className="ghost" onClick={() => void signOut()}>
-          <i className="ph ph-sign-out" aria-hidden="true" /> {t('home.logout')}
-        </button>
+        <div className="month">
+          <button type="button" className="icon-btn" aria-label={t('home.prev')} onClick={() => setMonth(addMonths(month, -1))}>
+            <i className="ph ph-caret-left" aria-hidden="true" />
+          </button>
+          <h1>{title}</h1>
+          <button type="button" className="icon-btn" aria-label={t('home.next')} onClick={() => setMonth(addMonths(month, 1))}>
+            <i className="ph ph-caret-right" aria-hidden="true" />
+          </button>
+        </div>
+        <div className="row-tight">
+          <button
+            type="button"
+            className={onlyDisc ? 'icon-btn on' : 'icon-btn'}
+            aria-label={t('home.onlyDisc')}
+            aria-pressed={onlyDisc}
+            title={t('home.onlyDisc')}
+            onClick={() => setOnlyDisc(!onlyDisc)}
+          >
+            <i className={onlyDisc ? 'ph-duotone ph-funnel' : 'ph ph-funnel'} aria-hidden="true" />
+          </button>
+          <button type="button" className="icon-btn" aria-label={t('home.settings')} onClick={() => nav.go({ name: 'settings' })}>
+            <i className="ph ph-gear" aria-hidden="true" />
+          </button>
+        </div>
       </header>
 
-      <section className="card">
-        <h2>{t('home.profile')}</h2>
-        <div className="row">
-          <span className="strong">{profile?.display_name ?? email}</span>
-          {profile && <span className={`badge ${profile.role}`}>{t(`home.role.${profile.role}`)}</span>}
-        </div>
-        <div className="row muted small">
-          <span>{email}</span>
-          {profile && (
-            <span>
-              {t('home.currency')}: {profile.base_currency}
-            </span>
-          )}
-        </div>
-      </section>
+      <SyncPill pending={pending} onClick={() => nav.go({ name: 'settings' })} />
 
-      <section className="card">
-        <h2>{t('home.sync')}</h2>
-        <div className="row">
-          <span className={`sync ${sync.status}`} role="status">
-            <span className="dot" aria-hidden="true" /> {syncText}
+      <Donut slices={slices} onSelect={openMacro} label={t('home.donut', { month: title })}>
+        <span className="muted tiny">{onlyDisc ? t('home.discretionary') : t('home.expenses')}</span>
+        <span className="big num">{money(summary.shown)}</span>
+        <span className={`num balance ${balance < 0 ? 'neg' : 'pos'}`}>{t('home.balance', { amount: money(balance, true) })}</span>
+        {summary.scheduled > 0 && <span className="muted tiny">{t('home.scheduled', { amount: money(summary.scheduled) })}</span>}
+      </Donut>
+
+      <div className="tiles">
+        <div className="card tile">
+          <span className="muted tiny">{t('home.income')}</span>
+          <span className="num strong pos">{money(summary.income)}</span>
+        </div>
+        <div className="card tile">
+          <span className="muted tiny">{t('home.discretionary')}</span>
+          <span className="num strong">
+            {money(summary.discretionary)}{' '}
+            {summary.expense > 0 && <span className="muted tiny">· {Math.round((summary.discretionary / summary.expense) * 100)}%</span>}
           </span>
-          {sync.status !== 'syncing' && (
-            <button type="button" className="ghost" onClick={() => void runSync()}>
-              <i className="ph ph-arrows-clockwise" aria-hidden="true" /> {t('home.sync.retry')}
-            </button>
-          )}
         </div>
-      </section>
+      </div>
 
       <section className="card">
-        <div className="row">
-          <h2>{t('home.masterdata')}</h2>
-          <span className="muted small">{t('home.counts', { macros: visibleMacros.length, categories: catCount })}</span>
-        </div>
-        {visibleMacros.length === 0 && <p className="muted small">{t('home.empty')}</p>}
-        {(['expense', 'income'] as TxKind[]).map((kind) => {
-          const list = visibleMacros.filter((m) => m.tx_kind === kind);
-          if (list.length === 0) return null;
+        <h2>{t('home.byMacro')}</h2>
+        {summary.byMacro.length === 0 && <p className="muted small empty">{t('home.noTx')}</p>}
+        {summary.byMacro.map((m) => {
+          const macro = master.macroById.get(m.macroId);
+          const color = macro?.color ?? OTHER_COLOR;
           return (
-            <div key={kind}>
-              <h3>{t(`home.${kind}`)}</h3>
-              <ul className="macros">
-                {list.map((m) => (
-                  <li key={m.id}>
-                    <span className="chip" style={{ background: `${m.color}2E`, color: m.color }}>
-                      <i className={`ph-duotone ph-${m.icon}`} aria-hidden="true" />
-                    </span>
-                    <div className="macro-body">
-                      <span className="strong">{m.name}</span>
-                      <span className="cats">
-                        {(byMacro.get(m.id) ?? []).map((c) => (
-                          <span key={c.id} className="cat" title={t(`flag.${c.flag}`)}>
-                            <i className={`ph-duotone ph-${c.icon}`} style={{ color: c.shade ?? m.color }} aria-hidden="true" />
-                            {c.name}
-                            {c.flag === 'discretionary' && <span className="disc" aria-label={t('flag.discretionary')} />}
-                          </span>
-                        ))}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <button key={m.macroId} type="button" className="macro-row" onClick={() => openMacro(m.macroId)}>
+              <span className="chip" style={{ background: `${color}2E`, color }}>
+                <i className={`ph-duotone ph-${macro?.icon ?? 'dots-three'}`} aria-hidden="true" />
+              </span>
+              <span className="macro-main">
+                <span className="macro-line">
+                  <span>{macro?.name ?? t('home.other')}</span>
+                  <span className="num">{money(m.cents)}</span>
+                </span>
+                <span className="bar"><span style={{ width: `${(m.cents / summary.shown) * 100}%`, background: color }} /></span>
+              </span>
+              <span className="pct num">{pct(m.cents)}%</span>
+            </button>
           );
         })}
       </section>
 
-      <p className="muted small center">
-        {t('home.skeleton')} · v{__APP_VERSION__}
-      </p>
+      <BottomBar nav={nav} />
     </main>
   );
 }

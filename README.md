@@ -61,6 +61,16 @@ public/
 
 ## Stato
 
-v0.1.0 — scheletro: login, sessione, scarico anagrafiche in locale, funzionamento
-offline, installazione sulla schermata Home. Prossimo: Home con ciambella e
-inserimento rapido.
+v0.2.0 — Home con ciambella (totali, saldo, "di cui programmati", filtro
+discrezionali), inserimento rapido con calcolatrice (importi in centesimi,
+frazioni esatte), esercizio con suggerimento categoria, griglia 9 categorie più
+usate negli ultimi 90 giorni, elenco Movimenti con modifica/cancellazione,
+Impostazioni con stato sincronizzazione.
+
+Sincronizzazione local-first: la UI legge sempre da IndexedDB; ogni scrittura va
+in locale e in una coda (outbox) inviata al server alla prima occasione
+(`save_transaction` / `delete_transaction`); lo scarico è incrementale su
+`updated_at`. Collaudata su un server simulato (2 dispositivi, offline, conflitto
+su esercizio omonimo); da collaudare sul Supabase reale.
+
+Prossimo: ricorrenze e piani rateali, spesa divisa, cassa/competenza, backup.
