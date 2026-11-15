@@ -26,6 +26,10 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
 }) {
   const { t, locale } = useI18n();
   const [from, to] = monthRange(month);
+  const toConfirm = useLiveQuery(
+    () => db.transactions.filter((x) => !!x.recurrence_id && !x.deleted_at && x.status === 'scheduled' && x.tx_date <= todayISO()).count(),
+    [db],
+  ) ?? 0;
   const txs = useLiveQuery(() => db.transactions.where('tx_date').between(from, to, true, false).toArray(), [db, from, to]);
   const money = (cents: number, sign = false) => formatMoney(cents, currency, locale, { sign });
 
@@ -78,6 +82,11 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
       </header>
 
       <SyncPill pending={pending} onClick={() => nav.go({ name: 'settings' })} />
+      {toConfirm > 0 && (
+        <button type="button" className="pill confirm" onClick={() => nav.tab({ name: 'recurrences' })}>
+          <i className="ph ph-bell-ringing" aria-hidden="true" /> {t('home.toConfirm', { n: toConfirm })}
+        </button>
+      )}
 
       <Donut slices={slices} onSelect={openMacro} label={t('home.donut', { month: title })}>
         <span className="muted tiny">{onlyDisc ? t('home.discretionary') : t('home.expenses')}</span>

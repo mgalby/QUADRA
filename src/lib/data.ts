@@ -19,7 +19,7 @@ export interface TxInput {
 }
 
 /** Cerca l'esercizio per nome (maiuscole ignorate) o lo crea. */
-async function findOrCreateMerchant(db: QuadraDB, name: string): Promise<string | null> {
+export async function findOrCreateMerchant(db: QuadraDB, name: string): Promise<string | null> {
   const clean = name.trim().replace(/\s+/g, ' ');
   if (clean === '') return null;
   const lower = clean.toLowerCase();
@@ -42,10 +42,12 @@ export async function saveTransaction(db: QuadraDB, input: TxInput): Promise<Tra
       tx_date: input.date,
       merchant_id: await findOrCreateMerchant(db, input.merchantName),
       note: input.note.trim() || null,
-      status: 'confirmed', // una data futura si mostra come "programmato" finché non arriva
+      status: 'confirmed', // una data futura si mostra come "programmato" finché non arriva; salvare conferma anche una scadenza da confermare
       accrual_mode: previous?.accrual_mode ?? 'same',
       fx_status: previous?.fx_status ?? 'none',
       recurrence_id: previous?.recurrence_id ?? null,
+      occurrence_date: previous?.occurrence_date ?? null,
+      installment_id: previous?.installment_id ?? null,
       client_modified_at: now(),
       deleted_at: null,
       // se la categoria non cambia, l'eventuale override del flag resta

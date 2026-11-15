@@ -61,16 +61,17 @@ public/
 
 ## Stato
 
-v0.2.0 — Home con ciambella (totali, saldo, "di cui programmati", filtro
-discrezionali), inserimento rapido con calcolatrice (importi in centesimi,
-frazioni esatte), esercizio con suggerimento categoria, griglia 9 categorie più
-usate negli ultimi 90 giorni, elenco Movimenti con modifica/cancellazione,
-Impostazioni con stato sincronizzazione.
+v0.3.0 — Ricorrenze e piani rate, oltre a quanto già c'era dalla v0.2.0
+(Home con ciambella, inserimento rapido, movimenti, sincronizzazione local-first).
 
-Sincronizzazione local-first: la UI legge sempre da IndexedDB; ogni scrittura va
-in locale e in una coda (outbox) inviata al server alla prima occasione
-(`save_transaction` / `delete_transaction`); lo scarico è incrementale su
-`updated_at`. Collaudata su un server simulato (2 dispositivi, offline, conflitto
-su esercizio omonimo); da collaudare sul Supabase reale.
+Ricorrenze: fisse (importo noto), variabili (bollette: alla scadenza compaiono in
+"Da confermare" con l'ultimo importo) e piani rate (l'ultima rata assorbe i
+centesimi). Regole: scadenza il 31 in un mese corto = ultimo giorno del mese; le
+scadenze si preparano all'apertura dell'app, anche offline, per gli arretrati e per
+i prossimi 30 giorni; una scadenza ha un identificatore calcolato (due dispositivi
+ottengono lo stesso), quindi non si duplica; una scadenza cancellata a mano non si
+rigenera; una modifica vale solo per le scadenze future; "Termina" lascia la storia.
 
-Prossimo: ricorrenze e piani rateali, spesa divisa, cassa/competenza, backup.
+Non ancora: ricorrenze in valuta estera, competenza "tutta nel mese dell'acquisto"
+per le rate (serve una colonna in più sul database), spesa divisa, cassa/competenza,
+backup.

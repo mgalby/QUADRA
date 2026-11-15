@@ -9,7 +9,7 @@ export function BottomBar({ nav }: { nav: Nav }) {
     { name: 'home', icon: 'house', label: t('nav.home'), onClick: () => nav.tab({ name: 'home' }) },
     { name: 'movements', icon: 'list-bullets', label: t('nav.movements'), onClick: () => nav.tab({ name: 'movements' }) },
     { name: 'stats', icon: 'chart-bar', label: t('nav.stats') },
-    { name: 'recurrences', icon: 'arrows-clockwise', label: t('nav.recurrences') },
+    { name: 'recurrences', icon: 'arrows-clockwise', label: t('nav.recurrences'), onClick: () => nav.tab({ name: 'recurrences' }) },
   ];
   return (
     <div className="bottombar">

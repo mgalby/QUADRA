@@ -73,15 +73,57 @@ export interface Transaction {
   accrual_mode: 'same' | 'date' | 'spread' | 'package';
   fx_status: 'none' | 'estimated' | 'final';
   recurrence_id: string | null;
+  occurrence_date: string | null;  // scadenza della ricorrenza da cui nasce
+  installment_id: string | null;   // rata del piano da cui nasce
   client_modified_at: string;
   deleted_at: string | null;
   lines: TxLine[];
 }
 
+export type RecKind = 'fixed' | 'variable' | 'plan';
+export type IntervalUnit = 'day' | 'week' | 'month' | 'year';
+export type Anchor = 'day_of_month' | 'end_of_month' | 'first_business_day';
+
+/** Ricorrenza fissa, variabile (importo da confermare) o piano rate. */
+export interface Recurrence {
+  id: string;
+  name: string;
+  kind: RecKind;
+  tx_kind: TxKind;
+  category_id: string;
+  merchant_id: string | null;
+  note: string | null;
+  reference_amount: number | null;
+  currency: string;
+  interval_n: number | null;
+  interval_unit: IntervalUnit | null;
+  anchor: Anchor | null;
+  anchor_day: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  max_occurrences: number | null;
+  notify_days_before: number;
+  active: boolean;
+  client_modified_at: string;
+  deleted_at: string | null;
+}
+
+/** Rata di un piano: data, importo e se va confermata a mano. */
+export interface Installment {
+  id: string;
+  recurrence_id: string;
+  seq: number;
+  due_date: string;
+  amount: number;
+  mode: 'auto' | 'confirm';
+  client_modified_at: string;
+  deleted_at: string | null;
+}
+
 /** Coda di invio: cosa deve ancora arrivare al server. */
 export interface OutboxEntry {
-  key: string; // "tx:<id>" oppure "merchant:<id>"
-  kind: 'tx' | 'merchant';
+  key: string; // "tx:<id>", "merchant:<id>" oppure "rec:<id>"
+  kind: 'tx' | 'merchant' | 'rec';
   id: string;
   error?: string;
 }

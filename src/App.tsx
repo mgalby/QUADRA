@@ -4,6 +4,7 @@ import { useAuth } from './auth/AuthProvider';
 import { Toast, type ToastData } from './components/Toast';
 import { deleteTransaction } from './lib/data';
 import { openDb } from './lib/db';
+import { generateDue } from './lib/recurring';
 import { monthOf, todayISO } from './lib/dates';
 import { useMasterData } from './lib/hooks';
 import { useI18n } from './lib/i18n';
@@ -16,6 +17,8 @@ import { Entry } from './pages/Entry';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Movements } from './pages/Movements';
+import { RecurrenceForm } from './pages/RecurrenceForm';
+import { Recurrences } from './pages/Recurrences';
 import { Settings } from './pages/Settings';
 
 export function App() {
@@ -51,7 +54,18 @@ function Shell({ userId, email }: { userId: string; email: string }) {
   const pending = useLiveQuery(() => db.outbox.filter((o) => o.kind === 'tx').count(), [db]) ?? 0;
   const currency = profile?.base_currency ?? 'EUR';
 
-  const sync = useCallback(() => void syncNow(db, userId), [db, userId]);
+  // Sincronizza e poi prepara le scadenze delle ricorrenze (anche senza rete: sono calcolate sul dispositivo).
+  // Se ne nascono di nuove, parte subito un secondo invio.
+  const sync = useCallback(() => {
+    void syncNow(db, userId)
+      .then(() => generateDue(db, todayISO()))
+      .then(async (created) => {
+        if ((await db.outbox.count()) > 0) void syncNow(db, userId);
+        if (created > 0) setToast({ id: Date.now(), text: t(created === 1 ? 'toast.generated.one' : 'toast.generated.many', { n: created }) });
+      })
+      .catch((e) => console.error('Ricorrenze:', e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, userId]);
 
   // sincronizza all'avvio, al ritorno della rete e quando si torna sull'app
   useEffect(() => {
@@ -97,6 +111,12 @@ function Shell({ userId, email }: { userId: string; email: string }) {
     setToast({ id: Date.now(), text: t('toast.deleted') });
   }
 
+  function onRecDone(msg: 'saved' | 'ended') {
+    void generateDue(db, todayISO()).then(() => sync());
+    nav.back();
+    setToast({ id: Date.now(), text: t(msg === 'saved' ? 'toast.recSaved' : 'toast.recEnded') });
+  }
+
   const s = nav.screen;
   return (
     <>
@@ -109,6 +129,8 @@ function Shell({ userId, email }: { userId: string; email: string }) {
       {s.name === 'entry' && (
         <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} currency={currency} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
       )}
+      {s.name === 'recurrences' && <Recurrences db={db} master={master} nav={nav} currency={currency} pending={pending} />}
+      {s.name === 'recurrence' && <RecurrenceForm key={s.id ?? 'new'} db={db} master={master} id={s.id} currency={currency} onBack={nav.back} onDone={onRecDone} />}
       {s.name === 'settings' && (
         <Settings db={db} master={master} nav={nav} userId={userId} email={email} pending={pending} onSync={sync} />
       )}

@@ -5,6 +5,8 @@ export type Screen =
   | { name: 'home' }
   | { name: 'movements'; macroId?: string }
   | { name: 'entry'; kind: TxKind; txId?: string }
+  | { name: 'recurrences' }
+  | { name: 'recurrence'; id?: string }
   | { name: 'settings' };
 
 export interface Nav {

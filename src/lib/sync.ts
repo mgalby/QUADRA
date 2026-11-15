@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { QuadraDB } from './db';
 import { supabase } from './supabase';
-import type { Category, Macro, Merchant, Profile, Transaction, TxLine } from './types';
+import type { Category, Installment, Macro, Merchant, Profile, Recurrence, Transaction, TxLine } from './types';
 
 // ---------------------------------------------------------------------------
 // Sincronizzazione con Supabase.
@@ -68,6 +68,30 @@ async function pushMerchant(db: QuadraDB, id: string): Promise<void> {
   });
 }
 
+async function pushRecurrence(db: QuadraDB, id: string): Promise<void> {
+  const r = await db.recurrences.get(id);
+  if (!r) return;
+  const rec = await supabase.from('recurrences').upsert({
+    id: r.id, name: r.name, kind: r.kind, tx_kind: r.tx_kind, category_id: r.category_id,
+    merchant_id: r.merchant_id, note: r.note, reference_amount: r.reference_amount, currency: r.currency,
+    interval_n: r.interval_n, interval_unit: r.interval_unit, anchor: r.anchor, anchor_day: r.anchor_day,
+    start_date: r.start_date, end_date: r.end_date, max_occurrences: r.max_occurrences,
+    notify_days_before: r.notify_days_before, active: r.active,
+    client_modified_at: r.client_modified_at, deleted_at: r.deleted_at,
+  });
+  check(rec.error);
+  // le rate viaggiano con il loro piano
+  const rows = await db.installments.where('recurrence_id').equals(id).toArray();
+  if (rows.length === 0) return;
+  const inst = await supabase.from('plan_installments').upsert(
+    rows.map((i) => ({
+      id: i.id, recurrence_id: i.recurrence_id, seq: i.seq, due_date: i.due_date, amount: i.amount,
+      mode: i.mode, client_modified_at: i.client_modified_at, deleted_at: i.deleted_at,
+    })),
+  );
+  check(inst.error);
+}
+
 async function pushTransaction(db: QuadraDB, id: string): Promise<string | null> {
   const tx = await db.transactions.get(id);
   if (!tx) return null;
@@ -86,6 +110,9 @@ async function pushTransaction(db: QuadraDB, id: string): Promise<string | null>
       note: tx.note,
       status: tx.status,
       accrual_mode: tx.accrual_mode,
+      recurrence_id: tx.recurrence_id,
+      occurrence_date: tx.occurrence_date,
+      installment_id: tx.installment_id,
       client_modified_at: tx.client_modified_at,
       lines: tx.lines,
     },
@@ -96,14 +123,18 @@ async function pushTransaction(db: QuadraDB, id: string): Promise<string | null>
 
 async function pushOutbox(db: QuadraDB): Promise<string | null> {
   const entries = await db.outbox.toArray();
-  // gli esercizi prima: i movimenti li referenziano
-  entries.sort((a, b) => Number(a.kind === 'tx') - Number(b.kind === 'tx'));
+  // prima gli esercizi, poi le ricorrenze, infine i movimenti: ognuno referenzia i precedenti
+  const rank = { merchant: 0, rec: 1, tx: 2 } as const;
+  entries.sort((a, b) => rank[a.kind] - rank[b.kind]);
   let firstError: string | null = null;
 
   for (const entry of entries) {
     try {
       if (entry.kind === 'merchant') {
         await pushMerchant(db, entry.id);
+        await db.outbox.delete(entry.key);
+      } else if (entry.kind === 'rec') {
+        await pushRecurrence(db, entry.id);
         await db.outbox.delete(entry.key);
       } else {
         const sent = await pushTransaction(db, entry.id);
@@ -112,7 +143,8 @@ async function pushOutbox(db: QuadraDB): Promise<string | null> {
           const now = await db.transactions.get(entry.id);
           if (now && now.client_modified_at !== sent) return;
           await db.outbox.delete(entry.key);
-          if (now?.deleted_at) await db.transactions.delete(entry.id);
+          // le scadenze cancellate restano come traccia, per non essere rigenerate
+          if (now?.deleted_at && !now.recurrence_id) await db.transactions.delete(entry.id);
         });
       }
     } catch (e) {
@@ -160,7 +192,7 @@ const PAGE = 500;
 /** Scarica le righe modificate dopo l'ultimo scarico, a pagine. */
 async function pullSince<T extends { id: string; updated_at: string }>(
   db: QuadraDB,
-  table: 'transactions' | 'merchants',
+  table: 'transactions' | 'merchants' | 'recurrences' | 'plan_installments',
   columns: string,
   store: (rows: T[]) => Promise<void>,
 ): Promise<void> {
@@ -207,7 +239,8 @@ async function pullTransactions(db: QuadraDB): Promise<void> {
       await db.transaction('rw', [db.transactions, db.outbox], async () => {
         for (const row of rows) {
           if (await db.outbox.get(`tx:${row.id}`)) continue; // modifica locale in attesa
-          if (row.deleted_at) {
+          // senza ricorrenza una cancellazione si dimentica; con ricorrenza resta come traccia
+          if (row.deleted_at && !row.recurrence_id) {
             await db.transactions.delete(row.id);
             continue;
           }
@@ -222,14 +255,49 @@ async function pullTransactions(db: QuadraDB): Promise<void> {
             accrual_mode: row.accrual_mode,
             fx_status: row.fx_status,
             recurrence_id: row.recurrence_id,
+            occurrence_date: row.occurrence_date,
+            installment_id: row.installment_id,
             client_modified_at: row.client_modified_at,
-            deleted_at: null,
+            deleted_at: row.deleted_at,
             lines: row.transaction_lines.map((l) => ({ ...l, amount: Number(l.amount) })),
           });
         }
       });
     },
   );
+}
+
+async function pullRecurrences(db: QuadraDB): Promise<void> {
+  await pullSince<Recurrence & { updated_at: string }>(db, 'recurrences', '*', async (rows) => {
+    await db.transaction('rw', [db.recurrences, db.outbox], async () => {
+      for (const row of rows) {
+        if (await db.outbox.get(`rec:${row.id}`)) continue; // modifica locale in attesa
+        await db.recurrences.put({
+          id: row.id, name: row.name, kind: row.kind, tx_kind: row.tx_kind, category_id: row.category_id,
+          merchant_id: row.merchant_id, note: row.note,
+          reference_amount: row.reference_amount === null ? null : Number(row.reference_amount),
+          currency: row.currency, interval_n: row.interval_n, interval_unit: row.interval_unit,
+          anchor: row.anchor, anchor_day: row.anchor_day, start_date: row.start_date, end_date: row.end_date,
+          max_occurrences: row.max_occurrences, notify_days_before: row.notify_days_before, active: row.active,
+          client_modified_at: row.client_modified_at, deleted_at: row.deleted_at,
+        });
+      }
+    });
+  });
+}
+
+async function pullInstallments(db: QuadraDB): Promise<void> {
+  await pullSince<Installment & { updated_at: string }>(db, 'plan_installments', '*', async (rows) => {
+    await db.transaction('rw', [db.installments, db.outbox], async () => {
+      for (const row of rows) {
+        if (await db.outbox.get(`rec:${row.recurrence_id}`)) continue; // il piano ha modifiche locali in attesa
+        await db.installments.put({
+          id: row.id, recurrence_id: row.recurrence_id, seq: row.seq, due_date: row.due_date,
+          amount: Number(row.amount), mode: row.mode, client_modified_at: row.client_modified_at, deleted_at: row.deleted_at,
+        });
+      }
+    });
+  });
 }
 
 // ----- punto d'ingresso ----------------------------------------------------
@@ -258,6 +326,8 @@ export function syncNow(db: QuadraDB, userId: string): Promise<void> {
         const pushError = await pushOutbox(db);
         await pullMasterData(db, userId);
         await pullMerchants(db);
+        await pullRecurrences(db);
+        await pullInstallments(db);
         await pullTransactions(db);
         await db.meta.put({ key: 'last_sync', value: new Date().toISOString() });
         setState(pushError ? { status: 'error', msg: pushError } : { status: 'ok' });

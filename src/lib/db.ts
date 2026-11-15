@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Category, Macro, Merchant, OutboxEntry, Profile, Transaction } from './types';
+import type { Category, Installment, Macro, Merchant, OutboxEntry, Profile, Recurrence, Transaction } from './types';
 
 /** Coppie chiave/valore locali: es. data dell'ultima sincronizzazione. */
 export interface Meta {
@@ -17,6 +17,8 @@ export class QuadraDB extends Dexie {
   transactions!: EntityTable<Transaction, 'id'>;
   merchants!: EntityTable<Merchant, 'id'>;
   outbox!: EntityTable<OutboxEntry, 'key'>;
+  recurrences!: EntityTable<Recurrence, 'id'>;
+  installments!: EntityTable<Installment, 'id'>;
 
   constructor(userId: string) {
     super(`quadra-${userId}`);
@@ -31,6 +33,10 @@ export class QuadraDB extends Dexie {
       transactions: 'id, tx_date, merchant_id',
       merchants: 'id',
       outbox: 'key',
+    });
+    this.version(3).stores({
+      recurrences: 'id',
+      installments: 'id, recurrence_id, due_date',
     });
   }
 }

@@ -94,7 +94,7 @@ export function Movements({ db, master, nav, month, setMonth, macroId, currency,
                   <span className="tx-title">{merchant ?? cat?.name ?? '—'}</span>
                   <span className="muted tiny tx-sub">
                     {[merchant ? cat?.name : null, tx.note].filter(Boolean).join(' · ')}
-                    {isScheduled(tx, today) && <span className="tag">{t('mov.scheduled')}</span>}
+                    {tx.status === 'scheduled' && tx.tx_date <= today ? <span className="tag wait">{t('mov.toConfirm')}</span> : isScheduled(tx, today) && <span className="tag">{t('mov.scheduled')}</span>}
                     {waitingIds.has(tx.id) && <span className="tag wait">{t('mov.waiting')}</span>}
                   </span>
                 </span>

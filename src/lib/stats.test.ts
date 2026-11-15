@@ -10,7 +10,7 @@ const cats = new Map([cat('spesa', 'M1', 'essential'), cat('bar', 'M2', 'discret
 
 const tx = (kind: Transaction['tx_kind'], category_id: string, amount: number, date = '2026-11-10', extra: Partial<Transaction> = {}): Transaction => ({
   id: Math.random().toString(), tx_kind: kind, total: amount, tx_date: date, merchant_id: null, note: null, status: 'confirmed',
-  accrual_mode: 'same', fx_status: 'none', recurrence_id: null, client_modified_at: '', deleted_at: null,
+  accrual_mode: 'same', fx_status: 'none', recurrence_id: null, occurrence_date: null, installment_id: null, client_modified_at: '', deleted_at: null,
   lines: [{ category_id, amount, flag_override: null }], ...extra,
 });
 
