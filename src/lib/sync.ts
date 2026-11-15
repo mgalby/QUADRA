@@ -112,6 +112,9 @@ async function pushTransaction(db: QuadraDB, id: string): Promise<string | null>
       note: tx.note,
       status: tx.status,
       accrual_mode: tx.accrual_mode,
+      ...(tx.fx_status !== 'none' && tx.currency
+        ? { currency: tx.currency, amount_original: tx.amount_original, fx_rate: tx.fx_rate, fx_status: tx.fx_status }
+        : {}),
       recurrence_id: tx.recurrence_id,
       occurrence_date: tx.occurrence_date,
       installment_id: tx.installment_id,
@@ -263,6 +266,9 @@ async function pullTransactions(db: QuadraDB): Promise<void> {
             status: row.status,
             accrual_mode: row.accrual_mode,
             fx_status: row.fx_status,
+            currency: row.fx_status === 'none' ? undefined : row.currency,
+            amount_original: row.amount_original == null ? null : Number(row.amount_original),
+            fx_rate: row.fx_rate == null ? null : Number(row.fx_rate),
             recurrence_id: row.recurrence_id,
             occurrence_date: row.occurrence_date,
             installment_id: row.installment_id,

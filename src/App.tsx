@@ -20,7 +20,9 @@ import { Login } from './pages/Login';
 import { Movements } from './pages/Movements';
 import { RecurrenceForm } from './pages/RecurrenceForm';
 import { Recurrences } from './pages/Recurrences';
+import { FxPending } from './pages/FxPending';
 import { Settings } from './pages/Settings';
+import { activeTripId, currentTrip, loadTrips } from './lib/trips';
 
 export function App() {
   const { session } = useAuth();
@@ -65,6 +67,9 @@ function Shell({ userId, email }: { userId: string; email: string }) {
   }, [db]);
 
   const profile = useLiveQuery(() => db.profile.get(userId), [db, userId]);
+  const trips = useLiveQuery(() => loadTrips(db), [db]);
+  const tripOn = useLiveQuery(() => activeTripId(db), [db]);
+  const trip = currentTrip(trips ?? [], tripOn ?? null);
   const pending = useLiveQuery(() => db.outbox.filter((o) => o.kind === 'tx').count(), [db]) ?? 0;
   const currency = profile?.base_currency ?? 'EUR';
 
@@ -142,8 +147,9 @@ function Shell({ userId, email }: { userId: string; email: string }) {
         <Movements db={db} master={master} nav={nav} month={month} setMonth={setMonth} macroId={s.macroId} categoryId={s.categoryId} basis={basis} setBasis={setBasis} currency={currency} pending={pending} />
       )}
       {s.name === 'entry' && (
-        <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} currency={currency} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
+        <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} currency={currency} trip={trip ? { name: trip.name, currency: trip.currency } : null} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
       )}
+      {s.name === 'fxpending' && <FxPending db={db} master={master} nav={nav} currency={currency} />}
       {s.name === 'recurrences' && <Recurrences db={db} master={master} nav={nav} currency={currency} pending={pending} />}
       {s.name === 'recurrence' && <RecurrenceForm key={s.id ?? 'new'} db={db} master={master} id={s.id} currency={currency} onBack={nav.back} onDone={onRecDone} />}
       {s.name === 'settings' && (

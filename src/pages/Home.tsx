@@ -8,6 +8,7 @@ import type { QuadraDB } from '../lib/db';
 import { slicesInMonth, type Basis } from '../lib/basis';
 import { addMonths, monthLabel, todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
+import { activeTripId, currentTrip, loadTrips } from '../lib/trips';
 import { useI18n } from '../lib/i18n';
 import { formatMoney } from '../lib/money';
 import type { Nav } from '../lib/nav';
@@ -36,6 +37,10 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
     () => db.transactions.filter((x) => !!x.recurrence_id && !x.deleted_at && x.status === 'scheduled' && x.tx_date <= todayISO()).count(),
     [db],
   ) ?? 0;
+  const toAdjust = useLiveQuery(() => db.transactions.filter((x) => !x.deleted_at && x.fx_status === 'estimated').count(), [db]) ?? 0;
+  const trips = useLiveQuery(() => loadTrips(db), [db]);
+  const tripOn = useLiveQuery(() => activeTripId(db), [db]);
+  const trip = currentTrip(trips ?? [], tripOn ?? null);
   // tutti i movimenti: con quote e pagamenti su mesi diversi, un movimento può cadere in un mese lontano dalla sua data
   const txs = useLiveQuery(() => db.transactions.toArray(), [db]);
   const money = (cents: number, sign = false) => formatMoney(cents, currency, locale, { sign });
@@ -137,6 +142,16 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
 
       <SyncPill pending={pending} onClick={() => nav.go({ name: 'settings' })} />
       <BasisToggle basis={basis} setBasis={setBasis} />
+      {trip && (
+        <button type="button" className="pill" onClick={() => nav.go({ name: 'settings' })}>
+          <i className="ph ph-airplane-tilt" aria-hidden="true" /> {t('trip.on', { name: trip.name, currency: trip.currency })}
+        </button>
+      )}
+      {toAdjust > 0 && (
+        <button type="button" className="pill confirm" onClick={() => nav.go({ name: 'fxpending' })}>
+          <i className="ph ph-currency-circle-dollar" aria-hidden="true" /> {t('fx.toAdjust', { n: toAdjust })}
+        </button>
+      )}
       {toConfirm > 0 && (
         <button type="button" className="pill confirm" onClick={() => nav.tab({ name: 'recurrences' })}>
           <i className="ph ph-bell-ringing" aria-hidden="true" /> {t('home.toConfirm', { n: toConfirm })}

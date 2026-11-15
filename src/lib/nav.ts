@@ -6,6 +6,7 @@ export type Screen =
   | { name: 'movements'; macroId?: string; categoryId?: string }
   | { name: 'entry'; kind: TxKind; txId?: string }
   | { name: 'recurrences' }
+  | { name: 'fxpending' }
   | { name: 'recurrence'; id?: string }
   | { name: 'settings' };
 

@@ -61,6 +61,19 @@ public/
 
 ## Stato
 
+v0.6.0 — Valuta estera. In "Più opzioni" c'è la scelta della valuta: l'importo
+scritto vale in quella valuta e sotto compare "≈ x €". Cambio BCE (Frankfurter) del
+giorno del movimento; offline si usa l'ultimo noto per quella valuta; se non ce n'è,
+si scrive a mano. Stato stimato finché non si inserisce l'addebito reale in euro
+("Addebito reale", in Più opzioni): il movimento diventa rettificato e il cambio si
+ricalcola. Home: riquadro "da rettificare" con elenco. Movimenti: importo originale e
+tag "stimato". Dividi scontrino: righe nella valuta dello scontrino, ripartite in
+proporzione sul totale in euro. Viaggi (Impostazioni): nome, valuta, date; interruttore
+a mano; con un viaggio acceso l'inserimento parte nella sua valuta (i viaggi stanno
+sul dispositivo). Ricorrenze fisse e variabili in valuta: ogni scadenza nasce stimata
+e da confermare. Logica in `src/lib/fx.ts` e `src/lib/trips.ts` (con test). Nessuna
+modifica al database.
+
 v0.5.1 — In "Più opzioni" la competenza ha tre scelte: Mese del pagamento (default),
 Altro mese (una sola quota in un mese a scelta: anticipo pagato oggi per una cosa di
 febbraio) e Spalma. Il pagamento resta alla data del movimento. Dopo il salvataggio

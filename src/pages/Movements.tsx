@@ -8,7 +8,7 @@ import type { QuadraDB } from '../lib/db';
 import { addMonths, longDate, monthLabel, todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
-import { formatMoney } from '../lib/money';
+import { formatMoney, toCents } from '../lib/money';
 import type { Nav } from '../lib/nav';
 
 export function Movements({ db, master, nav, month, setMonth, macroId, categoryId, basis, setBasis, currency, pending }: {
@@ -112,7 +112,8 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
                 <span className="tx-main">
                   <span className="tx-title">{merchant ?? (split ? t('mov.multi') : cat?.name) ?? '—'}</span>
                   <span className="muted tiny tx-sub">
-                    {[merchant || split ? catNames : null, partLabel, tx.note].filter(Boolean).join(' · ')}
+                    {[merchant || split ? catNames : null, partLabel, tx.fx_status !== 'none' && tx.currency && tx.amount_original ? formatMoney(toCents(tx.amount_original), tx.currency, locale) : null, tx.note].filter(Boolean).join(' · ')}
+                    {tx.fx_status === 'estimated' && <span className="tag wait">{t('fx.estimated')}</span>}
                     {tx.status === 'scheduled' && tx.tx_date <= today ? <span className="tag wait">{t('mov.toConfirm')}</span> : slice.scheduled && <span className="tag">{t('mov.scheduled')}</span>}
                     {waitingIds.has(tx.id) && <span className="tag wait">{t('mov.waiting')}</span>}
                   </span>

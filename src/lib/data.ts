@@ -1,5 +1,6 @@
 import type { QuadraDB } from './db';
 import { addDays, todayISO } from './dates';
+import { convertCents, rateFromCharge } from './fx';
 import { fromCents } from './money';
 import { planToTx, sum, type Plan } from './plan';
 import { sortLines } from './split';
@@ -20,6 +21,8 @@ export interface TxInput {
   categoryId: string;        // categoria del movimento normale
   split?: { categoryId: string; cents: number }[]; // dividi scontrino: due o più righe che sommano al totale
   plan?: Plan;               // più opzioni: pagamenti e quote di competenza (assente = default)
+  /** Valuta estera: `cents` è il totale in valuta di conto, `original` l'importo scritto in valuta estera. */
+  fx?: { currency: string; original: number; rate: number; status: 'estimated' | 'final' };
 }
 
 /** Cerca l'esercizio per nome (maiuscole ignorate) o lo crea. */
@@ -45,6 +48,11 @@ export async function saveTransaction(db: QuadraDB, input: TxInput): Promise<Tra
   if (input.plan && ((input.plan.acc && sum(input.plan.acc) !== input.cents) || (input.plan.pay && sum(input.plan.pay) !== input.cents))) {
     throw new Error('Pagamenti o quote di competenza non sommano al totale');
   }
+  if (input.fx) {
+    const { original, rate, status } = input.fx;
+    if (!(original > 0) || !(rate > 0)) throw new Error('Valuta estera: importo o cambio non validi');
+    if (status === 'estimated' && convertCents(original, rate) !== input.cents) throw new Error('Valuta estera: il totale non corrisponde al cambio');
+  }
   return db.transaction('rw', [db.transactions, db.merchants, db.outbox], async () => {
     const previous = input.id ? await db.transactions.get(input.id) : undefined;
     const total = fromCents(input.cents);
@@ -65,7 +73,10 @@ export async function saveTransaction(db: QuadraDB, input: TxInput): Promise<Tra
       accrual_mode: plan.accrual_mode,
       payments: plan.payments,
       accruals: plan.accruals,
-      fx_status: previous?.fx_status ?? 'none',
+      currency: input.fx?.currency,
+      amount_original: input.fx ? fromCents(input.fx.original) : null,
+      fx_rate: input.fx ? (input.fx.status === 'final' ? rateFromCharge(input.fx.original, input.cents) : input.fx.rate) : null,
+      fx_status: input.fx?.status ?? 'none',
       recurrence_id: previous?.recurrence_id ?? null,
       occurrence_date: previous?.occurrence_date ?? null,
       installment_id: previous?.installment_id ?? null,

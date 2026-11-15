@@ -322,3 +322,8 @@ input[type='date'] { width: 100%; min-width: 0; }
 .opt-row input[type='date'] { text-align: left; }
 .opt-open { position: relative; }
 .opt-open.on::after { content: ''; position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+/* ---------- Valuta e viaggi ---------- */
+.trip-form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.trip-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted, #9aa3af); }
+.opt-sheet select { margin-bottom: 4px; }

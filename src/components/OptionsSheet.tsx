@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { addDays, addMonths, monthLabel } from '../lib/dates';
 import { evaluate, exprFromCents } from '../lib/calc';
 import { useI18n } from '../lib/i18n';
 import { formatMoney } from '../lib/money';
-import { sum, spreadRows, type AccRow, type PayRow, type Plan } from '../lib/plan';
+import { FX_COMMON, FX_CURRENCIES, parseManualRate } from '../lib/fx';
+import { rescalePlan, sum, spreadRows, type AccRow, type PayRow, type Plan } from '../lib/plan';
 import { setLineCents } from '../lib/split';
 
 /** Ricalcola gli importi dopo la modifica di una riga: un'altra riga assorbe la differenza. */
@@ -16,8 +17,15 @@ function edit<T extends { cents: number }>(rows: T[], i: number, cents: number, 
  * "Più opzioni": competenza (a quale mese appartiene la spesa, anche spalmata su più mesi)
  * e pagamenti (acconto e saldo). Lavora su una bozza: il piano passa al movimento solo con "Fatto".
  */
-export function OptionsSheet({ totalCents, date, plan, notice, currency, onDone, onClose }: {
-  totalCents: number;
+export function OptionsSheet({ totalCents: totalOrNull, fxCur, rate, rateSrc, charge, onCurrency, onRate, onCharge, date, plan, notice, currency, onDone, onClose }: {
+  totalCents: number | null; // totale in valuta di conto; null finché manca il cambio
+  fxCur: string | null;
+  rate: number | null;
+  rateSrc: 'live' | 'cached' | 'manual' | null;
+  charge: number | null;     // addebito reale, se già inserito
+  onCurrency: (cur: string | null) => void;
+  onRate: (rate: number) => void;
+  onCharge: (eurCents: number | null) => void;
   date: string;
   plan: Plan;
   notice: boolean;
@@ -33,6 +41,27 @@ export function OptionsSheet({ totalCents, date, plan, notice, currency, onDone,
   const [start, setStart] = useState(plan.acc?.[0]?.month ?? date.slice(0, 7));
   const [months, setMonths] = useState(plan.acc?.length ?? 12);
   const money = (c: number) => formatMoney(c, currency, locale);
+  const totalCents = totalOrNull ?? 0;
+  const [rateText, setRateText] = useState(rate ? String(rate).replace('.', ',') : '');
+  const [chargeText, setChargeText] = useState(charge !== null ? exprFromCents(charge) : '');
+
+  // cambio, valuta o addebito reale possono cambiare il totale: la bozza dei piani si ricalcola in proporzione
+  useEffect(() => {
+    if (totalOrNull === null) return;
+    const fixed = rescalePlan({ acc, pay }, totalOrNull);
+    if (fixed.acc !== acc) {
+      setAcc(fixed.acc);
+      setAccText((fixed.acc ?? []).map((r) => exprFromCents(r.cents)));
+    }
+    if (fixed.pay !== pay) {
+      setPay(fixed.pay);
+      setPayText((fixed.pay ?? []).map((r) => exprFromCents(r.cents)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalOrNull]);
+  useEffect(() => {
+    if (rate && rateSrc !== 'manual') setRateText(String(rate).replace('.', ','));
+  }, [rate, rateSrc]);
 
   function setSpread(from: string, n: number) {
     const rows = spreadRows(totalCents, from, n);
@@ -106,6 +135,38 @@ export function OptionsSheet({ totalCents, date, plan, notice, currency, onDone,
         </div>
         {notice && <p className="opt-notice">{t('opt.notice')}</p>}
 
+        <h3>{t('opt.cur.title')}</h3>
+        <p className="opt-hint">{t('opt.cur.hint')}</p>
+        <select aria-label={t('opt.cur.title')} value={fxCur ?? ''} onChange={(e) => { setChargeText(''); onCurrency(e.target.value || null); }}>
+          <option value="">{t('opt.cur.eur')} ({currency})</option>
+          {[...FX_COMMON, ...FX_CURRENCIES.filter((c) => !FX_COMMON.includes(c)).sort()].map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+        {fxCur && (
+          <>
+            <p className="opt-hint">
+              {charge !== null ? t('opt.charge.final') : rate === null ? t('opt.rate.missing') : t(`opt.rate.${rateSrc ?? 'cached'}`)}
+            </p>
+            <div className="row-fields">
+              <label className="grow">{t('opt.rate')}
+                <input inputMode="decimal" aria-label={t('opt.rate')} value={rateText} disabled={charge !== null}
+                  onChange={(e) => { setRateText(e.target.value); const r = parseManualRate(e.target.value); if (r) onRate(r); }} />
+              </label>
+              <label className="grow">{t('opt.charge')}
+                <input inputMode="decimal" aria-label={t('opt.charge')} placeholder="0,00" value={chargeText} disabled={rate === null && charge === null}
+                  onChange={(e) => {
+                    setChargeText(e.target.value);
+                    const v = e.target.value.trim() === '' ? null : evaluate(e.target.value);
+                    onCharge(v !== null && v > 0 ? v : null);
+                  }} />
+              </label>
+            </div>
+            <p className="opt-hint">{t('opt.charge.hint')}</p>
+          </>
+        )}
+
+        {totalOrNull === null ? <p className="opt-notice">{t('opt.needrate')}</p> : (<>
         <h3>{t('opt.acc.title')}</h3>
         <p className="opt-hint">{t('opt.acc.hint')}</p>
         <div className="segmented" role="group" aria-label={t('opt.acc.title')}>
@@ -170,7 +231,9 @@ export function OptionsSheet({ totalCents, date, plan, notice, currency, onDone,
           </>
         )}
 
-        <button type="button" className="primary split-save" disabled={!ok} onClick={() => onDone({ acc, pay })}>
+        </>)}
+
+        <button type="button" className="primary split-save" disabled={!ok || totalOrNull === null} onClick={() => onDone({ acc, pay })}>
           {t('opt.done')}
         </button>
       </div>

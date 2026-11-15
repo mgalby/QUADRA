@@ -81,7 +81,7 @@ export function Recurrences({ db, master, nav, currency, pending }: {
         </span>
         <span className={`num strong ${r.tx_kind === 'income' ? 'pos' : ''}`}>
           {r.kind === 'variable' ? '≈ ' : ''}
-          {formatMoney(r.tx_kind === 'income' ? cents : -cents, currency, locale, { sign: true })}
+          {formatMoney(r.tx_kind === 'income' ? cents : -cents, r.currency || currency, locale, { sign: true })}
         </span>
       </button>
     );

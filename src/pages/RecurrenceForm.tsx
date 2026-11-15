@@ -3,6 +3,7 @@ import { evaluate, exprFromCents } from '../lib/calc';
 import type { QuadraDB } from '../lib/db';
 import { todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
+import { FX_COMMON, FX_CURRENCIES } from '../lib/fx';
 import { useI18n } from '../lib/i18n';
 import { formatMoney, toCents } from '../lib/money';
 import { endRecurrence, savePlan, saveRecurrence } from '../lib/recurring';
@@ -32,6 +33,7 @@ export function RecurrenceForm({ db, master, id, currency, onBack, onDone }: {
   const [txKind, setTxKind] = useState<TxKind>('expense');
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
+  const [cur, setCur] = useState(currency); // valuta della ricorrenza: si sceglie alla creazione
   const [categoryId, setCategoryId] = useState('');
   const [merchant, setMerchant] = useState('');
   const [note, setNote] = useState('');
@@ -56,6 +58,7 @@ export function RecurrenceForm({ db, master, id, currency, onBack, onDone }: {
         setTxKind(r.tx_kind);
         setName(r.name);
         setAmount(exprFromCents(toCents(r.reference_amount ?? 0)));
+        setCur(r.currency);
         setCategoryId(r.category_id);
         setNote(r.note ?? '');
         setEvery(String(r.interval_n ?? 1));
@@ -108,6 +111,7 @@ export function RecurrenceForm({ db, master, id, currency, onBack, onDone }: {
           txKind,
           name,
           cents,
+          currency: cur,
           categoryId,
           merchantName: merchant,
           note,
@@ -171,9 +175,19 @@ export function RecurrenceForm({ db, master, id, currency, onBack, onDone }: {
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
         </label>
         <label>
-          {t(isPlan ? 'rec.f.total' : 'rec.f.amount')} ({currency})
+          {t(isPlan ? 'rec.f.total' : 'rec.f.amount')} ({isPlan ? currency : cur})
           <input type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace('.', ','))} autoComplete="off" />
         </label>
+        {!isPlan && !existing && (
+          <label>
+            {t('opt.cur.title')}
+            <select value={cur} onChange={(e) => setCur(e.target.value)}>
+              <option value={currency}>{t('opt.cur.eur')} ({currency})</option>
+              {[...FX_COMMON, ...FX_CURRENCIES.filter((c) => !FX_COMMON.includes(c)).sort()].map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+        )}
+        {!isPlan && cur !== currency && <p className="muted small">{t('rec.f.hint.foreign')}</p>}
         <label>
           {t('rec.f.category')}
           <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>

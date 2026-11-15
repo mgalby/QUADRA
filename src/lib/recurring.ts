@@ -1,6 +1,7 @@
 import type { QuadraDB } from './db';
 import { findOrCreateMerchant } from './data';
 import { addDays } from './dates';
+import { convertCents, getRate } from './fx';
 import { fromCents, toCents } from './money';
 import { occurrenceDates, scheduleOf, splitInstallments, stableId, type Schedule } from './recurrence';
 import type { Installment, Recurrence, Transaction, TxKind } from './types';
@@ -18,6 +19,7 @@ export interface RecurrenceInput {
   txKind: TxKind;
   name: string;
   cents: number;
+  currency?: string; // valuta dell'importo; assente = quella già salvata o euro
   categoryId: string;
   merchantName: string;
   note: string;
@@ -44,7 +46,7 @@ export async function saveRecurrence(db: QuadraDB, input: RecurrenceInput, today
       merchant_id: merchantId,
       note: input.note.trim() || null,
       reference_amount: fromCents(input.cents),
-      currency: previous?.currency ?? 'EUR',
+      currency: previous?.currency ?? input.currency ?? 'EUR',
       interval_n: s.interval_n,
       interval_unit: s.interval_unit,
       anchor: s.interval_unit === 'month' || s.interval_unit === 'year' ? s.anchor : null,
@@ -164,15 +166,19 @@ async function reconcileFuture(db: QuadraDB, rec: Recurrence, today: string, kin
         await dropTx(db, tx);
         continue;
       }
-      const cents = toCents(rec.reference_amount ?? tx.total);
+      const foreign = rec.currency !== 'EUR' && tx.fx_rate != null;
+      // in valuta estera l'importo di riferimento è in valuta: il totale in euro segue il cambio già stimato
+      const orig = foreign ? toCents(rec.reference_amount ?? tx.amount_original ?? 0) : 0;
+      const cents = foreign ? convertCents(orig, tx.fx_rate!) : toCents(rec.reference_amount ?? tx.total);
       const sameLine = tx.lines[0];
       // se la ricorrenza passa da fissa a variabile (o viceversa) le scadenze future seguono il nuovo tipo
       const status = !kindChanged ? tx.status : rec.kind === 'variable' ? 'scheduled' : 'confirmed';
-      if (status === tx.status && tx.total === fromCents(cents) && sameLine?.category_id === rec.category_id && tx.merchant_id === rec.merchant_id && tx.note === rec.note) continue;
+      if (status === tx.status && tx.total === fromCents(cents) && (!foreign || tx.amount_original === fromCents(orig)) && sameLine?.category_id === rec.category_id && tx.merchant_id === rec.merchant_id && tx.note === rec.note) continue;
       await db.transactions.put({
         ...tx,
         status,
         total: fromCents(cents),
+        ...(foreign ? { amount_original: fromCents(orig) } : {}),
         merchant_id: rec.merchant_id,
         note: rec.note,
         lines: [{ category_id: rec.category_id, amount: fromCents(cents), flag_override: null }],
@@ -208,7 +214,9 @@ export async function generateDue(db: QuadraDB, today: string): Promise<number> 
     const lastConfirmed = [...mine]
       .filter((t) => !t.deleted_at && t.status === 'confirmed')
       .sort((a, b) => (b.occurrence_date ?? '').localeCompare(a.occurrence_date ?? ''))[0];
-    const estimate = lastConfirmed?.total ?? rec.reference_amount ?? 0;
+    const foreignRec = rec.currency !== 'EUR' && rec.kind !== 'plan';
+    // in valuta estera la stima è nella valuta della ricorrenza
+    const estimate = (foreignRec ? lastConfirmed?.amount_original : lastConfirmed?.total) ?? rec.reference_amount ?? 0;
 
     const due: { date: string; id: string; amount: number; confirmed: boolean }[] = [];
     if (rec.kind === 'plan') {
@@ -221,12 +229,25 @@ export async function generateDue(db: QuadraDB, today: string): Promise<number> 
       const sched = scheduleOf(rec);
       if (!sched) continue;
       for (const date of occurrenceDates(sched, horizon)) {
-        due.push({ date, id: await stableId('rec', rec.id, date), amount: estimate, confirmed: rec.kind === 'fixed' });
+        due.push({ date, id: await stableId('rec', rec.id, date), amount: estimate, confirmed: rec.kind === 'fixed' && !foreignRec });
       }
     }
 
     for (const d of due) {
       if (seen.has(d.date) || d.amount <= 0) continue;
+      if (foreignRec) {
+        // scadenza in valuta: nasce "da confermare", stimata al cambio del giorno (o all'ultimo noto); senza cambio si riprova alla prossima apertura
+        const r = await getRate(db, rec.currency, d.date <= today ? d.date : today, today, 2500);
+        if (!r) continue;
+        const total = fromCents(convertCents(toCents(d.amount), r.rate));
+        created.push({
+          id: d.id, tx_kind: rec.tx_kind, total, tx_date: d.date, merchant_id: rec.merchant_id, note: rec.note,
+          status: 'scheduled', accrual_mode: 'same', currency: rec.currency, amount_original: d.amount, fx_rate: r.rate, fx_status: 'estimated',
+          recurrence_id: rec.id, occurrence_date: d.date, installment_id: null, client_modified_at: now(), deleted_at: null,
+          lines: [{ category_id: rec.category_id, amount: total, flag_override: null }],
+        });
+        continue;
+      }
       const inst = rec.kind === 'plan' ? (await db.installments.where('recurrence_id').equals(rec.id).toArray()).find((i) => i.due_date === d.date) : undefined;
       created.push({
         id: d.id,
@@ -250,7 +271,10 @@ export async function generateDue(db: QuadraDB, today: string): Promise<number> 
     // le variabili non ancora confermate seguono l'ultimo importo confermato
     if (rec.kind === 'variable') {
       for (const t of mine) {
-        if (!t.deleted_at && t.status === 'scheduled' && t.total !== estimate && estimate > 0) {
+        if (foreignRec && t.fx_rate && !t.deleted_at && t.status === 'scheduled' && t.amount_original !== estimate && estimate > 0) {
+          const total = fromCents(convertCents(toCents(estimate), t.fx_rate));
+          updates.push({ ...t, amount_original: estimate, total, lines: [{ ...t.lines[0], amount: total }], client_modified_at: now() });
+        } else if (!foreignRec && !t.deleted_at && t.status === 'scheduled' && t.total !== estimate && estimate > 0) {
           updates.push({ ...t, total: estimate, lines: [{ ...t.lines[0], amount: estimate }], client_modified_at: now() });
         }
       }

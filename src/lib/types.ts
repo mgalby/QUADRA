@@ -84,6 +84,10 @@ export interface Transaction {
   note: string | null;
   status: 'confirmed' | 'scheduled';
   accrual_mode: 'same' | 'date' | 'spread' | 'package';
+  /** Valuta estera: se manca (o è la valuta di conto) il movimento è in euro. */
+  currency?: string;
+  amount_original?: number | null; // importo nella valuta estera
+  fx_rate?: number | null;         // valuta estera per 1 unità di conto
   fx_status: 'none' | 'estimated' | 'final';
   recurrence_id: string | null;
   occurrence_date: string | null;  // scadenza della ricorrenza da cui nasce

@@ -4,10 +4,11 @@ import { displayExpr, evaluate, exprFromCents, hasOperator, press, type CalcKey 
 import { deleteTransaction, gridCategories, merchantStats, saveTransaction } from '../lib/data';
 import type { QuadraDB } from '../lib/db';
 import { addDays, shortDate, todayISO } from '../lib/dates';
+import { convertCents, getRate, rateFromCharge } from '../lib/fx';
 import { addLine, removeLine, setLineCategory, setLineCents, sortLines, splitStatus, startSplit, type SplitLine } from '../lib/split';
 import type { MasterData } from '../lib/hooks';
 import { OptionsSheet } from '../components/OptionsSheet';
-import { emptyPlan, isCustom, planFromTx, planMismatch, rescalePlan, type Plan } from '../lib/plan';
+import { emptyPlan, isCustom, planFromTx, planMismatch, rescaleCents, rescalePlan, type Plan } from '../lib/plan';
 import { useI18n } from '../lib/i18n';
 import { formatMoney, toCents } from '../lib/money';
 import type { Category, Transaction, TxKind } from '../lib/types';
@@ -24,12 +25,13 @@ const KEYBOARD: Record<string, CalcKey> = { '.': ',', Backspace: 'back', x: '*',
  * Inserimento rapido: importo, esercizio, tap sulla categoria che salva.
  * Con txId modifica un movimento esistente (stessa schermata, già compilata).
  */
-export function Entry({ db, master, kind: initialKind, txId, currency, onBack, onSaved, onDeleted }: {
+export function Entry({ db, master, kind: initialKind, txId, currency, trip, onBack, onSaved, onDeleted }: {
   db: QuadraDB;
   master: MasterData;
   kind: TxKind;
   txId?: string;
   currency: string;
+  trip: { name: string; currency: string } | null; // modalità viaggio attiva: la valuta di partenza
   onBack: () => void;
   onSaved: (tx: Transaction, isNew: boolean) => void;
   onDeleted: () => void;
@@ -55,6 +57,12 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
   const [plan, setPlan] = useState<Plan>(emptyPlan);
   const [optOpen, setOptOpen] = useState(false);
   const [optNotice, setOptNotice] = useState(false);
+  // valuta estera: null = valuta di conto. L'importo scritto è nella valuta estera, il totale in euro si calcola col cambio
+  const [fxCur, setFxCur] = useState<string | null>(!txId && trip ? trip.currency : null);
+  const [fxRate, setFxRate] = useState<number | null>(null);
+  const [rateSrc, setRateSrc] = useState<'live' | 'cached' | 'manual' | null>(null);
+  const [rateKey, setRateKey] = useState(''); // valuta:data per cui il cambio è già a posto
+  const [chargeLock, setChargeLock] = useState<{ cur: string; original: number; eur: number } | null>(null); // addebito reale
 
   // modifica: carica il movimento una volta sola
   useEffect(() => {
@@ -70,6 +78,14 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
         setDate(tx.tx_date);
         setNote(tx.note ?? '');
         setPlan(planFromTx(tx));
+        if (tx.fx_status !== 'none' && tx.currency && tx.amount_original && tx.fx_rate) {
+          setFxCur(tx.currency);
+          setFxRate(tx.fx_rate);
+          setRateSrc('cached');
+          setRateKey(`${tx.currency}:${tx.tx_date}`);
+          setExpr(exprFromCents(toCents(tx.amount_original)));
+          if (tx.fx_status === 'final') setChargeLock({ cur: tx.currency, original: toCents(tx.amount_original), eur: toCents(tx.total) });
+        }
         if (tx.lines.length > 1) {
           setSplitLines(sortLines(tx.lines).map((l) => ({ categoryId: l.category_id, cents: toCents(l.amount) })));
         }
@@ -106,6 +122,36 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
 
   const cents = evaluate(expr);
   const valid = cents !== null && cents > 0;
+  // addebito reale valido solo finché importo e valuta sono quelli per cui è stato scritto
+  const charge = chargeLock && chargeLock.cur === fxCur && chargeLock.original === cents ? chargeLock.eur : null;
+  // totale in valuta di conto: l'importo stesso, oppure convertito (o l'addebito reale)
+  const eur: number | null = !valid ? null : fxCur === null ? cents : charge ?? (fxRate ? convertCents(cents, fxRate) : null);
+  const ready = valid && eur !== null && eur > 0;
+  const shownCur = fxCur ?? currency;
+
+  // il cambio della data e della valuta scelte: dalla rete, altrimenti l'ultimo noto, altrimenti a mano
+  useEffect(() => {
+    if (!fxCur || `${fxCur}:${date}` === rateKey) return;
+    let alive = true;
+    void getRate(db, fxCur, date, today).then((r) => {
+      if (!alive) return;
+      setRateKey(`${fxCur}:${date}`);
+      setFxRate(r?.rate ?? null);
+      setRateSrc(r?.source ?? null);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [db, fxCur, date, today, rateKey]);
+
+  function changeCurrency(cur: string | null) {
+    if (cur === fxCur) return;
+    setFxCur(cur);
+    setFxRate(null);
+    setRateSrc(null);
+    setChargeLock(null);
+    setRateKey('');
+  }
 
   // un tasto va all'importo totale oppure, in modalità divisione, alla riga che si sta scrivendo
   function pressKey(key: CalcKey) {
@@ -167,18 +213,25 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
 
   // se il totale è cambiato dopo aver impostato un piano, lo ricalcolo e chiedo conferma prima di salvare
   function planBlocks(): boolean {
-    if (cents === null || !planMismatch(plan, cents)) return false;
-    setPlan(rescalePlan(plan, cents));
+    if (eur === null || !planMismatch(plan, eur)) return false;
+    setPlan(rescalePlan(plan, eur));
     setOptNotice(true);
     setOptOpen(true);
     return true;
   }
 
+  function fxInput() {
+    if (!fxCur || cents === null || fxRate === null) return undefined;
+    return { currency: fxCur, original: cents, rate: charge !== null ? rateFromCharge(cents, charge) : fxRate, status: (charge !== null ? 'final' : 'estimated') as 'final' | 'estimated' };
+  }
+
   async function saveSplit() {
-    if (!splitLines || !status?.ok || busy || planBlocks()) return;
+    if (!splitLines || !status?.ok || !ready || busy || planBlocks()) return;
     setBusy(true);
-    const lines = splitLines.map((l) => ({ categoryId: l.categoryId!, cents: l.cents }));
-    const tx = await saveTransaction(db, { id: original?.id, kind, cents: cents!, date, merchantName: merchant, note, categoryId: lines[0].categoryId, split: lines, plan });
+    // le righe si scrivono nella valuta dello scontrino; in euro si ripartisce il totale in proporzione
+    const euroLines = fxCur ? rescaleCents(splitLines.map((l) => l.cents), eur!) : splitLines.map((l) => l.cents);
+    const lines = splitLines.map((l, i) => ({ categoryId: l.categoryId!, cents: euroLines[i] }));
+    const tx = await saveTransaction(db, { id: original?.id, kind, cents: eur!, date, merchantName: merchant, note, categoryId: lines[0].categoryId, split: lines, plan, fx: fxInput() });
     onSaved(tx, !original);
   }
 
@@ -193,9 +246,9 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
   }
 
   async function save(categoryId: string) {
-    if (!valid || busy || planBlocks()) return; // busy: un doppio tap salva una volta sola
+    if (!ready || busy || planBlocks()) return; // busy: un doppio tap salva una volta sola
     setBusy(true);
-    const tx = await saveTransaction(db, { id: original?.id, kind, cents, date, merchantName: merchant, note, categoryId, plan });
+    const tx = await saveTransaction(db, { id: original?.id, kind, cents: eur!, date, merchantName: merchant, note, categoryId, plan, fx: fxInput() });
     onSaved(tx, !original);
   }
 
@@ -214,6 +267,10 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
     date === today ? `${t('date.today')}, ${shortDate(date, locale)}`
     : date === addDays(today, -1) ? `${t('date.yesterday')}, ${shortDate(date, locale)}`
     : shortDate(date, locale);
+  // sotto l'importo, in valuta estera: l'equivalente in euro (stimato o reale) e il viaggio
+  const equiv = !fxCur
+    ? ' '
+    : [trip && trip.currency === fxCur && !original ? trip.name : '', valid ? (eur !== null ? `${charge !== null ? '' : '≈ '}${formatMoney(eur, currency, locale)}` : t('fx.norate')) : ''].filter(Boolean).join(' · ') || ' ';
   const hint =
     cents === null ? t('entry.hint.empty')
     : !valid ? t('entry.hint.positive')
@@ -224,7 +281,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
     const macro = master.macroById.get(c.macro_id);
     const color = c.shade ?? macro?.color ?? '#8B93A0';
     return (
-      <button key={c.id} type="button" className={small ? 'cat-row' : 'cat-btn'} disabled={!valid || busy} onClick={() => pickCategory(c.id)}>
+      <button key={c.id} type="button" className={small ? 'cat-row' : 'cat-btn'} disabled={!ready || busy} onClick={() => pickCategory(c.id)}>
         <span className={c.id === suggestedId ? 'cat-icon ring' : 'cat-icon'} style={{ background: `${color}2E`, color, ['--ring' as string]: color }}>
           <i className={`ph-duotone ph-${c.icon}`} aria-hidden="true" />
         </span>
@@ -259,13 +316,13 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
 
       {splitLines ? (
         <button type="button" className={`amount as-button ${target === 'total' ? 'active' : ''}`} aria-label={t('entry.split.total')} onClick={() => { setTarget('total'); setLineExpr(''); }}>
-          <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : ' '}</span>
-          <span className={`total num ${cents !== null && !valid ? 'invalid' : ''}`}>{formatMoney(cents ?? 0, currency, locale)}</span>
+          <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : equiv}</span>
+          <span className={`total num ${cents !== null && !valid ? 'invalid' : ''}`}>{formatMoney(cents ?? 0, shownCur, locale)}</span>
         </button>
       ) : (
         <div className="amount" aria-live="polite">
-          <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : ' '}</span>
-          <span className={`total num ${cents !== null && !valid ? 'invalid' : ''}`}>{formatMoney(cents ?? 0, currency, locale)}</span>
+          <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : equiv}</span>
+          <span className={`total num ${cents !== null && !valid ? 'invalid' : ''}`}>{formatMoney(cents ?? 0, shownCur, locale)}</span>
         </div>
       )}
 
@@ -343,7 +400,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
                   <span className={c ? 'cat-name' : 'cat-name muted'}>{c?.name ?? t('entry.split.pick')}</span>
                 </button>
                 <button type="button" className="split-amt num" onClick={() => editLine(i)}>
-                  {active && hasOperator(lineExpr) ? displayExpr(lineExpr) : formatMoney(l.cents, currency, locale)}
+                  {active && hasOperator(lineExpr) ? displayExpr(lineExpr) : formatMoney(l.cents, shownCur, locale)}
                 </button>
                 <button type="button" className="icon-btn" aria-label={t('entry.split.remove')} onClick={() => dropLine(i)}>
                   <i className="ph ph-x" aria-hidden="true" />
@@ -360,8 +417,8 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
               {status.rest === 0
                 ? t('entry.split.done')
                 : status.rest > 0
-                  ? t('entry.split.rest', { amount: formatMoney(status.rest, currency, locale) })
-                  : t('entry.split.over', { amount: formatMoney(-status.rest, currency, locale) })}
+                  ? t('entry.split.rest', { amount: formatMoney(status.rest, shownCur, locale) })
+                  : t('entry.split.over', { amount: formatMoney(-status.rest, shownCur, locale) })}
             </span>
           </div>
           <button type="button" className="primary split-save" disabled={!status.ok || busy} onClick={() => void saveSplit()}>
@@ -412,7 +469,14 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
 
       {optOpen && valid && (
         <OptionsSheet
-          totalCents={cents!}
+          totalCents={eur}
+          fxCur={fxCur}
+          rate={fxRate}
+          rateSrc={rateSrc}
+          charge={charge}
+          onCurrency={changeCurrency}
+          onRate={(r) => { setFxRate(r); setRateSrc('manual'); setRateKey(`${fxCur}:${date}`); }}
+          onCharge={(eurCents) => setChargeLock(eurCents === null || !fxCur ? null : { cur: fxCur, original: cents!, eur: eurCents })}
           date={date}
           plan={plan}
           notice={optNotice}
