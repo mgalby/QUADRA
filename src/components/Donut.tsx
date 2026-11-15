@@ -15,6 +15,7 @@ const R = 88;
 const LEN = 2 * Math.PI * R;
 const ICON_R = 136;
 const ICON = 38;
+const MIN_GAP = 0.36; // distanza minima tra due icone, in radianti
 
 /** Ciambella delle uscite per macro, con le icone intorno. */
 export function Donut({ slices, onSelect, label, children }: {
@@ -29,6 +30,23 @@ export function Donut({ slices, onSelect, label, children }: {
     start += s.share;
     return arc;
   });
+
+  // le icone degli spicchi piccoli non devono sovrapporsi: si allontanano di poco dalla loro posizione
+  const angles = arcs.map((a) => (a.start + a.share / 2) * 2 * Math.PI - Math.PI / 2);
+  if (angles.length * MIN_GAP <= 2 * Math.PI) {
+    for (let pass = 0; pass < 40; pass++) {
+      for (let i = 0; i < angles.length; i++) {
+        const j = (i + 1) % angles.length;
+        let d = angles[j] - angles[i];
+        if (j === 0) d += 2 * Math.PI;
+        if (d < MIN_GAP) {
+          const push = (MIN_GAP - d) / 2;
+          angles[i] -= push;
+          angles[j] += push;
+        }
+      }
+    }
+  }
 
   return (
     <div className="donut" style={{ width: SIZE, height: SIZE }}>
@@ -47,8 +65,8 @@ export function Donut({ slices, onSelect, label, children }: {
           );
         })}
       </svg>
-      {arcs.map((a) => {
-        const angle = (a.start + a.share / 2) * 2 * Math.PI - Math.PI / 2;
+      {arcs.map((a, i) => {
+        const angle = angles[i];
         return (
           <button
             key={a.key}

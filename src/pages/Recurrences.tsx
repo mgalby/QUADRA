@@ -62,7 +62,7 @@ export function Recurrences({ db, master, nav, currency, pending }: {
     if (r.kind === 'plan') {
       const mine = (insts ?? []).filter((i) => i.recurrence_id === r.id && !i.deleted_at);
       const done = mine.filter((i) => i.due_date <= today).length;
-      const next = mine.filter((i) => i.due_date >= today).sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
+      const next = mine.filter((i) => i.due_date > today).sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
       return [t('rec.progress', { done, total: mine.length }), next ? t('rec.next', { date: shortDate(next.due_date, locale) }) : null].filter(Boolean).join(' · ');
     }
     const s = scheduleOf(r);
