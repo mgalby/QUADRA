@@ -284,3 +284,25 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .row-fields label.grow { flex: 1; min-width: 0; }
 input[type='date'] { width: 100%; min-width: 0; }
 .segmented button:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- Dividi scontrino ---------- */
+.amount.as-button { width: 100%; background: transparent; color: inherit; border-radius: 14px; border: 1px solid transparent; text-align: right; }
+.amount.as-button.active { border-color: var(--accent); background: #5b9be614; }
+.grid-card h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid-card h2.hinting { font-weight: 500; font-size: 12px; }
+.split-open { margin-left: auto; font-size: 13px; min-height: 28px; height: 28px; }
+.split-open:disabled { opacity: 0.4; }
+.split-card { padding: 10px 12px 12px; border-radius: 16px; display: flex; flex-direction: column; gap: 4px; }
+.split-card .row { padding-bottom: 2px; }
+.split-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 12px; border: 1px solid transparent; }
+.split-row.active { border-color: var(--accent); background: #5b9be614; }
+.split-cat { display: flex; align-items: center; gap: 10px; background: transparent; color: var(--text); text-align: left; padding: 0; min-width: 0; }
+.split-cat .cat-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-icon.small { width: 34px; height: 34px; border-radius: 10px; font-size: 19px; }
+.split-amt { background: transparent; color: var(--text); font-size: 17px; font-weight: 600; min-width: 84px; text-align: right; padding: 0 6px; }
+.split-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px; }
+.split-status { font-size: 12px; font-weight: 600; text-align: right; }
+.split-status.ok { color: var(--positive); }
+.split-status.warn { color: #e0a63a; }
+.split-save { margin-top: 6px; height: 46px; border-radius: 12px; }
+.sheet-grid { padding-bottom: 6px; }

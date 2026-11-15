@@ -1,7 +1,8 @@
 import type { QuadraDB } from './db';
 import { addDays, todayISO } from './dates';
 import { fromCents } from './money';
-import type { Category, Merchant, Transaction, TxKind } from './types';
+import { sortLines } from './split';
+import type { Category, Merchant, Transaction, TxKind, TxLine } from './types';
 
 // Operazioni sui dati locali. Ogni scrittura mette anche una voce nella coda
 // di invio, nella stessa transazione: o si salvano entrambe o nessuna.
@@ -15,7 +16,8 @@ export interface TxInput {
   date: string;
   merchantName: string;
   note: string;
-  categoryId: string;
+  categoryId: string;        // categoria del movimento normale
+  split?: { categoryId: string; cents: number }[]; // dividi scontrino: due o più righe che sommano al totale
 }
 
 /** Cerca l'esercizio per nome (maiuscole ignorate) o lo crea. */
@@ -32,9 +34,20 @@ export async function findOrCreateMerchant(db: QuadraDB, name: string): Promise<
 }
 
 export async function saveTransaction(db: QuadraDB, input: TxInput): Promise<Transaction> {
+  if (input.split) {
+    const sum = input.split.reduce((s, l) => s + l.cents, 0);
+    if (input.kind !== 'expense' || input.split.length < 2 || sum !== input.cents || input.split.some((l) => l.cents <= 0)) {
+      throw new Error('Divisione non valida: le righe devono sommare al totale');
+    }
+  }
   return db.transaction('rw', [db.transactions, db.merchants, db.outbox], async () => {
     const previous = input.id ? await db.transactions.get(input.id) : undefined;
     const total = fromCents(input.cents);
+    // l'override del flag resta solo se la categoria della riga è rimasta la stessa
+    const overrideFor = (categoryId: string) => previous?.lines.find((l) => l.category_id === categoryId)?.flag_override ?? null;
+    const lines: TxLine[] = input.split
+      ? sortLines(input.split.map((l) => ({ category_id: l.categoryId, amount: fromCents(l.cents), flag_override: overrideFor(l.categoryId) })))
+      : [{ category_id: input.categoryId, amount: total, flag_override: overrideFor(input.categoryId) }];
     const tx: Transaction = {
       id: input.id ?? crypto.randomUUID(),
       tx_kind: input.kind,
@@ -50,12 +63,7 @@ export async function saveTransaction(db: QuadraDB, input: TxInput): Promise<Tra
       installment_id: previous?.installment_id ?? null,
       client_modified_at: now(),
       deleted_at: null,
-      // se la categoria non cambia, l'eventuale override del flag resta
-      lines: [{
-        category_id: input.categoryId,
-        amount: total,
-        flag_override: previous?.lines[0]?.category_id === input.categoryId ? previous.lines[0].flag_override : null,
-      }],
+      lines,
     };
     await db.transactions.put(tx);
     await db.outbox.put({ key: `tx:${tx.id}`, kind: 'tx', id: tx.id });

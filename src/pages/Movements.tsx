@@ -35,6 +35,14 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
   const category = categoryId ? master.categoryById.get(categoryId) : undefined;
   const filterMacro = category ? master.macroById.get(category.macro_id) : macro;
 
+  // con un filtro conta solo la quota del movimento che sta in quella categoria (o macro)
+  const quotaOf = (tx: Transaction): number => {
+    if (!categoryId && !macroId) return toCents(tx.total);
+    return tx.lines
+      .filter((l) => (categoryId ? l.category_id === categoryId : master.categoryById.get(l.category_id)?.macro_id === macroId))
+      .reduce((sum, l) => sum + toCents(l.amount), 0);
+  };
+
   const days = useMemo(() => {
     const visible = (txs ?? []).filter(
       (tx) =>
@@ -48,9 +56,10 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
       let g = groups[groups.length - 1];
       if (!g || g.date !== tx.tx_date) groups.push((g = { date: tx.tx_date, items: [], net: 0 }));
       g.items.push(tx);
-      g.net += toCents(tx.total) * (tx.tx_kind === 'income' ? 1 : -1);
+      g.net += quotaOf(tx) * (tx.tx_kind === 'income' ? 1 : -1);
     }
     return groups;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txs, macroId, categoryId, master.categoryById]);
 
   return (
@@ -86,20 +95,22 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
             <span className="muted tiny num">{formatMoney(day.net, currency, locale, { sign: true })}</span>
           </div>
           {day.items.map((tx) => {
+            const split = tx.lines.length > 1;
             const cat = master.categoryById.get(tx.lines[0]?.category_id);
             const m = cat ? master.macroById.get(cat.macro_id) : undefined;
-            const color = cat?.shade ?? m?.color ?? '#8B93A0';
+            const color = split ? '#9AA3AF' : cat?.shade ?? m?.color ?? '#8B93A0';
             const merchant = tx.merchant_id ? merchantName.get(tx.merchant_id) : undefined;
-            const cents = toCents(tx.total);
+            const cents = quotaOf(tx);
+            const catNames = split ? tx.lines.map((l) => master.categoryById.get(l.category_id)?.name).filter(Boolean).join(' + ') : cat?.name;
             return (
               <button key={tx.id} type="button" className="tx-row" onClick={() => nav.go({ name: 'entry', kind: tx.tx_kind, txId: tx.id })}>
                 <span className="chip" style={{ background: `${color}2E`, color }}>
-                  <i className={`ph-duotone ph-${cat?.icon ?? 'question'}`} aria-hidden="true" />
+                  <i className={`ph-duotone ph-${split ? 'arrows-split' : cat?.icon ?? 'question'}`} aria-hidden="true" />
                 </span>
                 <span className="tx-main">
-                  <span className="tx-title">{merchant ?? cat?.name ?? '—'}</span>
+                  <span className="tx-title">{merchant ?? (split ? t('mov.multi') : cat?.name) ?? '—'}</span>
                   <span className="muted tiny tx-sub">
-                    {[merchant ? cat?.name : null, tx.note].filter(Boolean).join(' · ')}
+                    {[merchant || split ? catNames : null, tx.note].filter(Boolean).join(' · ')}
                     {tx.status === 'scheduled' && tx.tx_date <= today ? <span className="tag wait">{t('mov.toConfirm')}</span> : isScheduled(tx, today) && <span className="tag">{t('mov.scheduled')}</span>}
                     {waitingIds.has(tx.id) && <span className="tag wait">{t('mov.waiting')}</span>}
                   </span>

@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { QuadraDB } from './db';
 import { supabase } from './supabase';
 import type { Category, Installment, Macro, Merchant, Profile, Recurrence, Transaction, TxLine } from './types';
+import { sortLines } from './split';
 
 // ---------------------------------------------------------------------------
 // Sincronizzazione con Supabase.
@@ -259,7 +260,7 @@ async function pullTransactions(db: QuadraDB): Promise<void> {
             installment_id: row.installment_id,
             client_modified_at: row.client_modified_at,
             deleted_at: row.deleted_at,
-            lines: row.transaction_lines.map((l) => ({ ...l, amount: Number(l.amount) })),
+            lines: sortLines(row.transaction_lines.map((l) => ({ ...l, amount: Number(l.amount) }))),
           });
         }
       });

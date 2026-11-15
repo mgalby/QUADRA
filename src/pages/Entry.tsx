@@ -4,6 +4,7 @@ import { displayExpr, evaluate, exprFromCents, hasOperator, press, type CalcKey 
 import { deleteTransaction, gridCategories, merchantStats, saveTransaction } from '../lib/data';
 import type { QuadraDB } from '../lib/db';
 import { addDays, shortDate, todayISO } from '../lib/dates';
+import { addLine, removeLine, setLineCategory, setLineCents, sortLines, splitStatus, startSplit, type SplitLine } from '../lib/split';
 import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
 import { formatMoney, toCents } from '../lib/money';
@@ -44,6 +45,11 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [grid, setGrid] = useState<Category[]>([]);
+  // dividi scontrino: null = movimento normale; altrimenti le righe e quale importo sta scrivendo il tastierino
+  const [splitLines, setSplitLines] = useState<SplitLine[] | null>(null);
+  const [target, setTarget] = useState<'total' | number>('total');
+  const [lineExpr, setLineExpr] = useState('');
+  const [pickLine, setPickLine] = useState<number | null>(null);
 
   // modifica: carica il movimento una volta sola
   useEffect(() => {
@@ -58,6 +64,9 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
         setMerchant(m?.name ?? '');
         setDate(tx.tx_date);
         setNote(tx.note ?? '');
+        if (tx.lines.length > 1) {
+          setSplitLines(sortLines(tx.lines).map((l) => ({ categoryId: l.category_id, cents: toCents(l.amount) })));
+        }
       }
       setLoaded(true);
     })();
@@ -92,6 +101,17 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
   const cents = evaluate(expr);
   const valid = cents !== null && cents > 0;
 
+  // un tasto va all'importo totale oppure, in modalità divisione, alla riga che si sta scrivendo
+  function pressKey(key: CalcKey) {
+    if (splitLines && target !== 'total') {
+      const next = press(lineExpr, key);
+      setLineExpr(next);
+      setSplitLines(setLineCents(splitLines, target, evaluate(next) ?? 0, cents ?? 0));
+    } else {
+      setExpr((x) => press(x, key));
+    }
+  }
+
   // tastiera fisica, comoda dal PC: cifre e operatori quando non si sta scrivendo in un campo
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -99,12 +119,63 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
       const key = KEYBOARD[e.key] ?? e.key;
       if (KEYS.some((k) => k.key === key)) {
         e.preventDefault();
-        setExpr((x) => press(x, key as CalcKey));
+        pressKey(key as CalcKey);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  });
+
+  const status = splitLines ? splitStatus(cents ?? 0, splitLines) : null;
+
+  function startDivide() {
+    if (!valid || kind !== 'expense') return;
+    setSplitLines(startSplit(cents, suggestedId ?? null));
+    setTarget(1);
+    setLineExpr('');
+  }
+
+  function undoSplit() {
+    setSplitLines(null);
+    setTarget('total');
+    setLineExpr('');
+  }
+
+  function editLine(i: number) {
+    setTarget(i);
+    setLineExpr('');
+  }
+
+  function dropLine(i: number) {
+    if (!splitLines) return;
+    const next = removeLine(splitLines, i);
+    setTarget('total');
+    setLineExpr('');
+    setSplitLines(next.length < 2 ? null : next); // con una riga sola torna un movimento normale
+  }
+
+  function changeKind(k: TxKind) {
+    setKind(k);
+    if (k === 'income') undoSplit(); // le entrate non si dividono
+  }
+
+  async function saveSplit() {
+    if (!splitLines || !status?.ok || busy) return;
+    setBusy(true);
+    const lines = splitLines.map((l) => ({ categoryId: l.categoryId!, cents: l.cents }));
+    const tx = await saveTransaction(db, { id: original?.id, kind, cents: cents!, date, merchantName: merchant, note, categoryId: lines[0].categoryId, split: lines });
+    onSaved(tx, !original);
+  }
+
+  // un tap su una categoria salva (movimento normale) oppure la assegna alla riga in scelta
+  function pickCategory(categoryId: string) {
+    if (pickLine !== null && splitLines) {
+      setSplitLines(setLineCategory(splitLines, pickLine, categoryId));
+      setPickLine(null);
+      return;
+    }
+    void save(categoryId);
+  }
 
   async function save(categoryId: string) {
     if (!valid || busy) return; // busy: un doppio tap salva una volta sola
@@ -138,7 +209,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
     const macro = master.macroById.get(c.macro_id);
     const color = c.shade ?? macro?.color ?? '#8B93A0';
     return (
-      <button key={c.id} type="button" className={small ? 'cat-row' : 'cat-btn'} disabled={!valid || busy} onClick={() => void save(c.id)}>
+      <button key={c.id} type="button" className={small ? 'cat-row' : 'cat-btn'} disabled={!valid || busy} onClick={() => pickCategory(c.id)}>
         <span className={c.id === suggestedId ? 'cat-icon ring' : 'cat-icon'} style={{ background: `${color}2E`, color, ['--ring' as string]: color }}>
           <i className={`ph-duotone ph-${c.icon}`} aria-hidden="true" />
         </span>
@@ -157,7 +228,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
         </button>
         <div className="segmented" role="group" aria-label={t('entry.kind')}>
           {(['expense', 'income'] as TxKind[]).map((k) => (
-            <button key={k} type="button" className={k} aria-pressed={kind === k} onClick={() => setKind(k)}>
+            <button key={k} type="button" className={k} aria-pressed={kind === k} onClick={() => changeKind(k)}>
               {t(`kind.${k}`)}
             </button>
           ))}
@@ -171,10 +242,17 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
         )}
       </header>
 
-      <div className="amount" aria-live="polite">
-        <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : ' '}</span>
-        <span className={`total num ${cents !== null && !valid ? 'invalid' : ''}`}>{formatMoney(cents ?? 0, currency, locale)}</span>
-      </div>
+      {splitLines ? (
+        <button type="button" className={`amount as-button ${target === 'total' ? 'active' : ''}`} aria-label={t('entry.split.total')} onClick={() => { setTarget('total'); setLineExpr(''); }}>
+          <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : ' '}</span>
+          <span className={`total num ${cents !== null && !valid ? 'invalid' : ''}`}>{formatMoney(cents ?? 0, currency, locale)}</span>
+        </button>
+      ) : (
+        <div className="amount" aria-live="polite">
+          <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : ' '}</span>
+          <span className={`total num ${cents !== null && !valid ? 'invalid' : ''}`}>{formatMoney(cents ?? 0, currency, locale)}</span>
+        </div>
+      )}
 
       <div className="fields">
         <label className="field">
@@ -227,10 +305,61 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
         </div>
       </div>
 
+      {splitLines && status ? (
+        <section className="card split-card">
+          <div className="row">
+            <h2>{t('entry.split.title')}</h2>
+            <button type="button" className="ghost" onClick={undoSplit}>{t('entry.split.undo')}</button>
+          </div>
+          {splitLines.map((l, i) => {
+            const c = l.categoryId ? master.categoryById.get(l.categoryId) : undefined;
+            const macro = c ? master.macroById.get(c.macro_id) : undefined;
+            const color = c?.shade ?? macro?.color ?? '#8B93A0';
+            const active = target === i;
+            return (
+              <div key={i} className={`split-row ${active ? 'active' : ''}`}>
+                <button type="button" className="split-cat" onClick={() => setPickLine(i)}>
+                  <span className="cat-icon small" style={{ background: `${color}2E`, color }}>
+                    <i className={`ph-duotone ph-${c?.icon ?? 'question'}`} aria-hidden="true" />
+                  </span>
+                  <span className={c ? 'cat-name' : 'cat-name muted'}>{c?.name ?? t('entry.split.pick')}</span>
+                </button>
+                <button type="button" className="split-amt num" onClick={() => editLine(i)}>
+                  {active && hasOperator(lineExpr) ? displayExpr(lineExpr) : formatMoney(l.cents, currency, locale)}
+                </button>
+                <button type="button" className="icon-btn" aria-label={t('entry.split.remove')} onClick={() => dropLine(i)}>
+                  <i className="ph ph-x" aria-hidden="true" />
+                </button>
+              </div>
+            );
+          })}
+          <div className="split-foot">
+            <button type="button" className="ghost" onClick={() => { setSplitLines(addLine(splitLines)); setTarget(splitLines.length); setLineExpr(''); }}>
+              <i className="ph ph-plus" aria-hidden="true" />
+              {t('entry.split.add')}
+            </button>
+            <span className={`split-status ${status.rest === 0 ? 'ok' : 'warn'}`}>
+              {status.rest === 0
+                ? t('entry.split.done')
+                : status.rest > 0
+                  ? t('entry.split.rest', { amount: formatMoney(status.rest, currency, locale) })
+                  : t('entry.split.over', { amount: formatMoney(-status.rest, currency, locale) })}
+            </span>
+          </div>
+          <button type="button" className="primary split-save" disabled={!status.ok || busy} onClick={() => void saveSplit()}>
+            {t('entry.split.save')}
+          </button>
+        </section>
+      ) : (
       <section className="card grid-card">
         <div className="row">
-          <h2>{t('entry.tap')}</h2>
-          <span className="muted tiny">{hint}</span>
+          <h2 className={hint ? 'hinting' : ''}>{hint || t('entry.tap')}</h2>
+          {kind === 'expense' && (
+            <button type="button" className="ghost split-open" disabled={!valid || busy} onClick={startDivide}>
+              <i className="ph ph-arrows-split" aria-hidden="true" />
+              {t('entry.split')}
+            </button>
+          )}
         </div>
         <div className="cat-grid">
           {shown.map((c) => categoryButton(c))}
@@ -244,6 +373,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
           )}
         </div>
       </section>
+      )}
 
       <div className="keypad">
         {KEYS.map((k) => (
@@ -252,22 +382,23 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
             type="button"
             className={k.op ? 'op' : ''}
             aria-label={k.key === 'back' ? t('entry.backspace') : undefined}
-            onClick={() => setExpr((x) => press(x, k.key))}
+            onClick={() => pressKey(k.key)}
           >
             {k.key === 'back' ? <i className="ph ph-backspace" aria-hidden="true" /> : k.label}
           </button>
         ))}
       </div>
 
-      {showAll && (
-        <div className="sheet-backdrop" onClick={() => setShowAll(false)}>
+      {(showAll || pickLine !== null) && (
+        <div className="sheet-backdrop" onClick={() => { setShowAll(false); setPickLine(null); }}>
           <div className="sheet" role="dialog" aria-label={t('entry.all.title')} onClick={(e) => e.stopPropagation()}>
             <div className="row">
               <h2>{t('entry.all.title')}</h2>
-              <button type="button" className="icon-btn" aria-label={t('common.close')} onClick={() => setShowAll(false)}>
+              <button type="button" className="icon-btn" aria-label={t('common.close')} onClick={() => { setShowAll(false); setPickLine(null); }}>
                 <i className="ph ph-x" aria-hidden="true" />
               </button>
             </div>
+            {pickLine !== null && <div className="cat-grid sheet-grid">{shown.map((c) => categoryButton(c))}</div>}
             {master.macros.filter((m) => m.tx_kind === kind).map((m) => (
               <div key={m.id}>
                 <h3>{m.name}</h3>

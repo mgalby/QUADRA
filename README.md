@@ -61,6 +61,17 @@ public/
 
 ## Stato
 
+v0.4.0 — Dividi scontrino: nell'inserimento il pulsante "Dividi scontrino" (solo
+uscite) apre le righe. La prima prende tutto l'importo; l'importo scritto su una
+riga la toglie dalla prima (o dall'ultima se si modifica la prima). Il tastierino
+scrive sull'importo attivo: il totale oppure una riga. Salva resta spento finché
+il resto non è zero e ogni riga ha categoria e importo maggiore di zero. Logica
+pura in `src/lib/split.ts` (con test); `saveTransaction` accetta `split` e rifiuta
+righe che non sommano al totale. Le righe di un movimento si ordinano in modo
+stabile (la più pesante per prima, `sortLines`) anche al ritorno dal server.
+Nei Movimenti: icona "diviso", titolo "Più categorie", categorie elencate; con un
+filtro per categoria o macro conta solo la quota. Nessuna modifica al database.
+
 v0.3.1 — Home con vista Macro/Categorie: pulsante nella testata per cambiare al volo,
 vista iniziale tra i parametri in Impostazioni (per dispositivo, in `meta` locale
 `pref:home_view`); nella vista Categorie le tonalità sono automatiche per macro
@@ -78,5 +89,5 @@ ottengono lo stesso), quindi non si duplica; una scadenza cancellata a mano non 
 rigenera; una modifica vale solo per le scadenze future; "Termina" lascia la storia.
 
 Non ancora: ricorrenze in valuta estera, competenza "tutta nel mese dell'acquisto"
-per le rate (serve una colonna in più sul database), spesa divisa, cassa/competenza,
-backup.
+per le rate (serve una colonna in più sul database), cassa/competenza, valuta
+estera, importazione CSV, backup.

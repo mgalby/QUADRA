@@ -95,7 +95,7 @@ function Shell({ userId, email }: { userId: string; email: string }) {
 
   function onSaved(tx: Transaction, isNew: boolean) {
     const amount = formatMoney(toCents(tx.total), currency, locale);
-    const category = master.categoryById.get(tx.lines[0].category_id)?.name ?? '';
+    const category = tx.lines.length > 1 ? t('mov.multi') : master.categoryById.get(tx.lines[0].category_id)?.name ?? '';
     setMonth(monthOf(tx.tx_date)); // si torna sul mese del movimento, per vederlo
     nav.back();
     sync();
