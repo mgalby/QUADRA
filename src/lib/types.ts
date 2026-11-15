@@ -57,10 +57,23 @@ export interface TxLine {
   flag_override: Flag | null;
 }
 
+/** Pagamento (cassa): quando esce il denaro. */
+export interface Payment {
+  pay_date: string; // AAAA-MM-GG
+  amount: number;
+}
+
+/** Quota di competenza: a quale mese appartiene la spesa. */
+export interface Accrual {
+  period: string; // primo giorno del mese, AAAA-MM-01
+  amount: number;
+}
+
 /**
- * Movimento come sta sul dispositivo: testata più righe.
- * Pagamenti e quote di competenza per ora li crea il server con i valori
- * di default (un pagamento e una quota alla data del movimento).
+ * Movimento come sta sul dispositivo: testata, righe per categoria, pagamenti e
+ * quote di competenza. Pagamenti e quote sommano sempre al totale; se mancano
+ * (movimenti nati prima della v0.5.0 o dalle ricorrenze) valgono i default:
+ * un pagamento alla data del movimento e una quota nel suo mese.
  */
 export interface Transaction {
   id: string;
@@ -78,6 +91,8 @@ export interface Transaction {
   client_modified_at: string;
   deleted_at: string | null;
   lines: TxLine[];
+  payments?: Payment[];
+  accruals?: Accrual[];
 }
 
 export type RecKind = 'fixed' | 'variable' | 'plan';

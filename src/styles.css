@@ -306,3 +306,19 @@ input[type='date'] { width: 100%; min-width: 0; }
 .split-status.warn { color: #e0a63a; }
 .split-save { margin-top: 6px; height: 46px; border-radius: 12px; }
 .sheet-grid { padding-bottom: 6px; }
+
+/* ---------- Cassa / Competenza ---------- */
+.segmented.basis { align-self: center; }
+.segmented.basis button { min-height: 30px; height: 30px; padding: 0 16px; font-size: 13px; }
+
+/* ---------- Più opzioni ---------- */
+.opt-sheet h3 { margin: 14px 0 2px; }
+.opt-hint { margin: 0 0 8px; font-size: 12px; color: var(--muted, #9aa3af); }
+.opt-notice { margin: 4px 0; padding: 8px 10px; border-radius: 10px; background: #c985002e; color: #e0a63a; font-size: 13px; }
+.opt-rows { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.opt-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px; align-items: center; gap: 8px; }
+.opt-row.pay { grid-template-columns: minmax(0, 1fr) 100px auto; }
+.opt-row input { text-align: right; }
+.opt-row input[type='date'] { text-align: left; }
+.opt-open { position: relative; }
+.opt-open.on::after { content: ''; position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }

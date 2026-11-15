@@ -6,6 +6,8 @@ import type { QuadraDB } from '../lib/db';
 import { addDays, shortDate, todayISO } from '../lib/dates';
 import { addLine, removeLine, setLineCategory, setLineCents, sortLines, splitStatus, startSplit, type SplitLine } from '../lib/split';
 import type { MasterData } from '../lib/hooks';
+import { OptionsSheet } from '../components/OptionsSheet';
+import { emptyPlan, isCustom, planFromTx, planMismatch, rescalePlan, type Plan } from '../lib/plan';
 import { useI18n } from '../lib/i18n';
 import { formatMoney, toCents } from '../lib/money';
 import type { Category, Transaction, TxKind } from '../lib/types';
@@ -50,6 +52,9 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
   const [target, setTarget] = useState<'total' | number>('total');
   const [lineExpr, setLineExpr] = useState('');
   const [pickLine, setPickLine] = useState<number | null>(null);
+  const [plan, setPlan] = useState<Plan>(emptyPlan);
+  const [optOpen, setOptOpen] = useState(false);
+  const [optNotice, setOptNotice] = useState(false);
 
   // modifica: carica il movimento una volta sola
   useEffect(() => {
@@ -64,6 +69,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
         setMerchant(m?.name ?? '');
         setDate(tx.tx_date);
         setNote(tx.note ?? '');
+        setPlan(planFromTx(tx));
         if (tx.lines.length > 1) {
           setSplitLines(sortLines(tx.lines).map((l) => ({ categoryId: l.category_id, cents: toCents(l.amount) })));
         }
@@ -159,11 +165,20 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
     if (k === 'income') undoSplit(); // le entrate non si dividono
   }
 
+  // se il totale è cambiato dopo aver impostato un piano, lo ricalcolo e chiedo conferma prima di salvare
+  function planBlocks(): boolean {
+    if (cents === null || !planMismatch(plan, cents)) return false;
+    setPlan(rescalePlan(plan, cents));
+    setOptNotice(true);
+    setOptOpen(true);
+    return true;
+  }
+
   async function saveSplit() {
-    if (!splitLines || !status?.ok || busy) return;
+    if (!splitLines || !status?.ok || busy || planBlocks()) return;
     setBusy(true);
     const lines = splitLines.map((l) => ({ categoryId: l.categoryId!, cents: l.cents }));
-    const tx = await saveTransaction(db, { id: original?.id, kind, cents: cents!, date, merchantName: merchant, note, categoryId: lines[0].categoryId, split: lines });
+    const tx = await saveTransaction(db, { id: original?.id, kind, cents: cents!, date, merchantName: merchant, note, categoryId: lines[0].categoryId, split: lines, plan });
     onSaved(tx, !original);
   }
 
@@ -178,9 +193,9 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
   }
 
   async function save(categoryId: string) {
-    if (!valid || busy) return; // busy: un doppio tap salva una volta sola
+    if (!valid || busy || planBlocks()) return; // busy: un doppio tap salva una volta sola
     setBusy(true);
-    const tx = await saveTransaction(db, { id: original?.id, kind, cents, date, merchantName: merchant, note, categoryId });
+    const tx = await saveTransaction(db, { id: original?.id, kind, cents, date, merchantName: merchant, note, categoryId, plan });
     onSaved(tx, !original);
   }
 
@@ -309,6 +324,9 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
         <section className="card split-card">
           <div className="row">
             <h2>{t('entry.split.title')}</h2>
+            <button type="button" className={`icon-btn opt-open${isCustom(plan) ? ' on' : ''}`} aria-label={t('opt.open')} disabled={!valid || busy} onClick={() => { setOptNotice(false); setOptOpen(true); }}>
+              <i className="ph ph-sliders-horizontal" aria-hidden="true" />
+            </button>
             <button type="button" className="ghost" onClick={undoSplit}>{t('entry.split.undo')}</button>
           </div>
           {splitLines.map((l, i) => {
@@ -354,6 +372,9 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
       <section className="card grid-card">
         <div className="row">
           <h2 className={hint ? 'hinting' : ''}>{hint || t('entry.tap')}</h2>
+          <button type="button" className={`icon-btn opt-open${isCustom(plan) ? ' on' : ''}`} aria-label={t('opt.open')} disabled={!valid || busy} onClick={() => { setOptNotice(false); setOptOpen(true); }}>
+            <i className="ph ph-sliders-horizontal" aria-hidden="true" />
+          </button>
           {kind === 'expense' && (
             <button type="button" className="ghost split-open" disabled={!valid || busy} onClick={startDivide}>
               <i className="ph ph-arrows-split" aria-hidden="true" />
@@ -388,6 +409,18 @@ export function Entry({ db, master, kind: initialKind, txId, currency, onBack, o
           </button>
         ))}
       </div>
+
+      {optOpen && valid && (
+        <OptionsSheet
+          totalCents={cents!}
+          date={date}
+          plan={plan}
+          notice={optNotice}
+          currency={currency}
+          onDone={(p) => { setPlan(p); setOptOpen(false); setOptNotice(false); }}
+          onClose={() => { setOptOpen(false); setOptNotice(false); }}
+        />
+      )}
 
       {(showAll || pickLine !== null) && (
         <div className="sheet-backdrop" onClick={() => { setShowAll(false); setPickLine(null); }}>

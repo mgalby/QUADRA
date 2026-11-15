@@ -1,6 +1,7 @@
 import type { QuadraDB } from './db';
 import { addDays, todayISO } from './dates';
 import { fromCents } from './money';
+import { planToTx, sum, type Plan } from './plan';
 import { sortLines } from './split';
 import type { Category, Merchant, Transaction, TxKind, TxLine } from './types';
 
@@ -18,6 +19,7 @@ export interface TxInput {
   note: string;
   categoryId: string;        // categoria del movimento normale
   split?: { categoryId: string; cents: number }[]; // dividi scontrino: due o più righe che sommano al totale
+  plan?: Plan;               // più opzioni: pagamenti e quote di competenza (assente = default)
 }
 
 /** Cerca l'esercizio per nome (maiuscole ignorate) o lo crea. */
@@ -40,9 +42,13 @@ export async function saveTransaction(db: QuadraDB, input: TxInput): Promise<Tra
       throw new Error('Divisione non valida: le righe devono sommare al totale');
     }
   }
+  if (input.plan && ((input.plan.acc && sum(input.plan.acc) !== input.cents) || (input.plan.pay && sum(input.plan.pay) !== input.cents))) {
+    throw new Error('Pagamenti o quote di competenza non sommano al totale');
+  }
   return db.transaction('rw', [db.transactions, db.merchants, db.outbox], async () => {
     const previous = input.id ? await db.transactions.get(input.id) : undefined;
     const total = fromCents(input.cents);
+    const plan = planToTx(input.plan ?? { acc: null, pay: null }, input.cents, input.date);
     // l'override del flag resta solo se la categoria della riga è rimasta la stessa
     const overrideFor = (categoryId: string) => previous?.lines.find((l) => l.category_id === categoryId)?.flag_override ?? null;
     const lines: TxLine[] = input.split
@@ -56,7 +62,9 @@ export async function saveTransaction(db: QuadraDB, input: TxInput): Promise<Tra
       merchant_id: await findOrCreateMerchant(db, input.merchantName),
       note: input.note.trim() || null,
       status: 'confirmed', // una data futura si mostra come "programmato" finché non arriva; salvare conferma anche una scadenza da confermare
-      accrual_mode: previous?.accrual_mode ?? 'same',
+      accrual_mode: plan.accrual_mode,
+      payments: plan.payments,
+      accruals: plan.accruals,
       fx_status: previous?.fx_status ?? 'none',
       recurrence_id: previous?.recurrence_id ?? null,
       occurrence_date: previous?.occurrence_date ?? null,

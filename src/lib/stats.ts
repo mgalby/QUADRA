@@ -1,3 +1,4 @@
+import { lineShares, type Slice } from './basis';
 import { toCents } from './money';
 import type { Category, Transaction } from './types';
 
@@ -34,15 +35,26 @@ export function summarize(
   today: string,
   onlyDiscretionary = false,
 ): MonthSummary {
+  // senza cassa/competenza: ogni movimento conta per intero
+  const slices: Slice[] = txs
+    .filter((tx) => !tx.deleted_at)
+    .map((tx) => ({ tx, cents: toCents(tx.total), date: tx.tx_date, seq: 1, count: 1, scheduled: isScheduled(tx, today) }));
+  return summarizeSlices(slices, categories, onlyDiscretionary);
+}
+
+/** Riepilogo del mese a partire dalle fette (pagamenti o quote) che cadono nel mese. */
+export function summarizeSlices(
+  slices: Slice[],
+  categories: Map<string, Category>,
+  onlyDiscretionary = false,
+): MonthSummary {
   const s: MonthSummary = { income: 0, expense: 0, shown: 0, scheduled: 0, discretionary: 0, byMacro: [], byCategory: [] };
   const cats = new Map<string, CategoryTotal>();
   const macros = new Map<string, MacroTotal>();
 
-  for (const tx of txs) {
-    if (tx.deleted_at) continue;
-    const scheduled = isScheduled(tx, today);
-    for (const line of tx.lines) {
-      const cents = toCents(line.amount);
+  for (const slice of slices) {
+    const { tx, scheduled } = slice;
+    for (const { line, cents } of lineShares(tx, slice.cents)) {
       if (tx.tx_kind === 'income') {
         s.income += cents;
         continue;
@@ -72,7 +84,7 @@ export function summarize(
   return s;
 }
 
-export interface Slice {
+export interface DonutPart {
   key: string;        // id della macro o della categoria, oppure "other"
   cents: number;
   scheduledCents: number;
@@ -80,10 +92,10 @@ export interface Slice {
 }
 
 /** Spicchi della ciambella: quelli sotto la soglia finiscono in "Altro". */
-export function donutSlices(byMacro: MacroTotal[], total: number, threshold = 0.03): Slice[] {
+export function donutSlices(byMacro: MacroTotal[], total: number, threshold = 0.03): DonutPart[] {
   if (total <= 0) return [];
-  const slices: Slice[] = [];
-  const other: Slice = { key: 'other', cents: 0, scheduledCents: 0, share: 0 };
+  const slices: DonutPart[] = [];
+  const other: DonutPart = { key: 'other', cents: 0, scheduledCents: 0, share: 0 };
   for (const m of byMacro) {
     if (m.cents / total < threshold) {
       other.cents += m.cents;
@@ -97,10 +109,10 @@ export function donutSlices(byMacro: MacroTotal[], total: number, threshold = 0.
 }
 
 /** Come donutSlices, ma per categoria: gli spicchi restano raggruppati per macro. */
-export function donutSlicesByCategory(byCategory: CategoryTotal[], total: number, threshold = 0.03): Slice[] {
+export function donutSlicesByCategory(byCategory: CategoryTotal[], total: number, threshold = 0.03): DonutPart[] {
   if (total <= 0) return [];
-  const slices: Slice[] = [];
-  const other: Slice = { key: 'other', cents: 0, scheduledCents: 0, share: 0 };
+  const slices: DonutPart[] = [];
+  const other: DonutPart = { key: 'other', cents: 0, scheduledCents: 0, share: 0 };
   for (const c of byCategory) {
     if (c.cents / total < threshold) {
       other.cents += c.cents;

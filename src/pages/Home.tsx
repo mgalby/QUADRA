@@ -1,20 +1,22 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { BottomBar } from '../components/BottomBar';
+import { BasisToggle } from '../components/BasisToggle';
 import { Donut, type DonutSlice } from '../components/Donut';
 import { SyncPill } from '../components/SyncPill';
 import type { QuadraDB } from '../lib/db';
-import { addMonths, monthLabel, monthRange, todayISO } from '../lib/dates';
+import { slicesInMonth, type Basis } from '../lib/basis';
+import { addMonths, monthLabel, todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
 import { formatMoney } from '../lib/money';
 import type { Nav } from '../lib/nav';
 import { shades } from '../lib/colors';
-import { donutSlices, donutSlicesByCategory, summarize } from '../lib/stats';
+import { donutSlices, donutSlicesByCategory, summarizeSlices } from '../lib/stats';
 
 const OTHER_COLOR = '#8B93A0';
 
-export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, view, setView, currency, pending }: {
+export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, view, setView, basis, setBasis, currency, pending }: {
   db: QuadraDB;
   master: MasterData;
   nav: Nav;
@@ -24,19 +26,24 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
   setOnlyDisc: (v: boolean) => void;
   view: 'macro' | 'category';
   setView: (v: 'macro' | 'category') => void;
+  basis: Basis;
+  setBasis: (b: Basis) => void;
   currency: string;
   pending: number;
 }) {
   const { t, locale } = useI18n();
-  const [from, to] = monthRange(month);
   const toConfirm = useLiveQuery(
     () => db.transactions.filter((x) => !!x.recurrence_id && !x.deleted_at && x.status === 'scheduled' && x.tx_date <= todayISO()).count(),
     [db],
   ) ?? 0;
-  const txs = useLiveQuery(() => db.transactions.where('tx_date').between(from, to, true, false).toArray(), [db, from, to]);
+  // tutti i movimenti: con quote e pagamenti su mesi diversi, un movimento può cadere in un mese lontano dalla sua data
+  const txs = useLiveQuery(() => db.transactions.toArray(), [db]);
   const money = (cents: number, sign = false) => formatMoney(cents, currency, locale, { sign });
 
-  const summary = useMemo(() => summarize(txs ?? [], master.categoryById, todayISO(), onlyDisc), [txs, master.categoryById, onlyDisc]);
+  const summary = useMemo(
+    () => summarizeSlices(slicesInMonth(txs ?? [], basis, month, todayISO()), master.categoryById, onlyDisc),
+    [txs, basis, month, master.categoryById, onlyDisc],
+  );
   const pct = (cents: number) => (summary.shown > 0 ? Math.round((cents / summary.shown) * 100) : 0);
 
   // una voce per macro o per categoria, con colore, icona e cosa si apre al tocco
@@ -129,6 +136,7 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
       </header>
 
       <SyncPill pending={pending} onClick={() => nav.go({ name: 'settings' })} />
+      <BasisToggle basis={basis} setBasis={setBasis} />
       {toConfirm > 0 && (
         <button type="button" className="pill confirm" onClick={() => nav.tab({ name: 'recurrences' })}>
           <i className="ph ph-bell-ringing" aria-hidden="true" /> {t('home.toConfirm', { n: toConfirm })}

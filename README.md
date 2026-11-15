@@ -61,6 +61,18 @@ public/
 
 ## Stato
 
+v0.5.0 — Cassa e competenza: interruttore Competenza/Cassa in Home e Movimenti
+(preferenza salvata). Ogni movimento si "affetta" in pagamenti (cassa) o quote di
+competenza; senza piano è un pagamento alla data e una quota nel mese. "Più opzioni"
+(icona regolatori accanto a Dividi) apre il foglio: Spalma (dal mese X per N mesi,
+quote uguali, l'ultima assorbe i centesimi, modificabili a mano) e Più pagamenti
+(acconto e saldo). Il foglio non si chiude con "Fatto" finché le somme non tornano.
+Se il totale cambia dopo aver impostato un piano, quote e pagamenti si ricalcolano
+in proporzione con avviso. Movimenti: una riga per fetta ("quota 2 di 12",
+"pagamento 2 di 2"); il totale del mese coincide con la Home. Logica in
+`src/lib/basis.ts` e `src/lib/plan.ts` (con test). Nessuna modifica al database:
+il server già accettava `payments` e `accruals`.
+
 v0.4.0 — Dividi scontrino: nell'inserimento il pulsante "Dividi scontrino" (solo
 uscite) apre le righe. La prima prende tutto l'importo; l'importo scritto su una
 riga la toglie dalla prima (o dall'ultima se si modifica la prima). Il tastierino

@@ -5,6 +5,7 @@ import { Toast, type ToastData } from './components/Toast';
 import { deleteTransaction } from './lib/data';
 import { openDb } from './lib/db';
 import { generateDue } from './lib/recurring';
+import { slicesOf, type Basis } from './lib/basis';
 import { monthOf, todayISO } from './lib/dates';
 import { useMasterData } from './lib/hooks';
 import { useI18n } from './lib/i18n';
@@ -54,6 +55,15 @@ function Shell({ userId, email }: { userId: string; email: string }) {
   const savedView = useLiveQuery(() => db.meta.get('pref:home_view'), [db]);
   const view: 'macro' | 'category' = homeView ?? (savedView?.value === 'category' ? 'category' : 'macro');
 
+  // Competenza o Cassa: l'ultima scelta resta salvata su questo dispositivo
+  const [basisState, setBasisState] = useState<Basis | null>(null);
+  const savedBasis = useLiveQuery(() => db.meta.get('pref:basis'), [db]);
+  const basis: Basis = basisState ?? (savedBasis?.value === 'cash' ? 'cash' : 'accrual');
+  const setBasis = useCallback((b: Basis) => {
+    setBasisState(b);
+    void db.meta.put({ key: 'pref:basis', value: b });
+  }, [db]);
+
   const profile = useLiveQuery(() => db.profile.get(userId), [db, userId]);
   const pending = useLiveQuery(() => db.outbox.filter((o) => o.kind === 'tx').count(), [db]) ?? 0;
   const currency = profile?.base_currency ?? 'EUR';
@@ -96,7 +106,8 @@ function Shell({ userId, email }: { userId: string; email: string }) {
   function onSaved(tx: Transaction, isNew: boolean) {
     const amount = formatMoney(toCents(tx.total), currency, locale);
     const category = tx.lines.length > 1 ? t('mov.multi') : master.categoryById.get(tx.lines[0].category_id)?.name ?? '';
-    setMonth(monthOf(tx.tx_date)); // si torna sul mese del movimento, per vederlo
+    // si torna sul mese del movimento nella vista scelta, per vederlo (con quote o pagamenti spostati, il primo)
+    setMonth(monthOf(slicesOf(tx, basis, todayISO())[0]?.date ?? tx.tx_date));
     nav.back();
     sync();
     setToast({
@@ -125,10 +136,10 @@ function Shell({ userId, email }: { userId: string; email: string }) {
   return (
     <>
       {s.name === 'home' && (
-        <Home db={db} master={master} nav={nav} month={month} setMonth={setMonth} onlyDisc={onlyDisc} setOnlyDisc={setOnlyDisc} view={view} setView={setHomeView} currency={currency} pending={pending} />
+        <Home db={db} master={master} nav={nav} month={month} setMonth={setMonth} onlyDisc={onlyDisc} setOnlyDisc={setOnlyDisc} view={view} setView={setHomeView} basis={basis} setBasis={setBasis} currency={currency} pending={pending} />
       )}
       {s.name === 'movements' && (
-        <Movements db={db} master={master} nav={nav} month={month} setMonth={setMonth} macroId={s.macroId} categoryId={s.categoryId} currency={currency} pending={pending} />
+        <Movements db={db} master={master} nav={nav} month={month} setMonth={setMonth} macroId={s.macroId} categoryId={s.categoryId} basis={basis} setBasis={setBasis} currency={currency} pending={pending} />
       )}
       {s.name === 'entry' && (
         <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} currency={currency} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />

@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { QuadraDB } from './db';
 import { supabase } from './supabase';
 import type { Category, Installment, Macro, Merchant, Profile, Recurrence, Transaction, TxLine } from './types';
+import { accrualsOf, paymentsOf } from './basis';
 import { sortLines } from './split';
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,8 @@ async function pushTransaction(db: QuadraDB, id: string): Promise<string | null>
       installment_id: tx.installment_id,
       client_modified_at: tx.client_modified_at,
       lines: tx.lines,
+      payments: paymentsOf(tx).map((p) => ({ pay_date: p.pay_date, amount: p.amount })),
+      accruals: accrualsOf(tx).map((a) => ({ period: a.period, amount: a.amount })),
     },
   });
   check(error);
@@ -169,7 +172,12 @@ const toMerchant = (m: Merchant): Merchant => ({
   deleted_at: m.deleted_at,
 });
 
-type ServerTx = Transaction & { updated_at: string; transaction_lines: TxLine[] };
+type ServerTx = Transaction & {
+  updated_at: string;
+  transaction_lines: TxLine[];
+  payments: { pay_date: string; amount: number | string }[];
+  accruals: { period: string; amount: number | string }[];
+};
 type ServerMerchant = Merchant & { updated_at: string };
 
 async function pullMasterData(db: QuadraDB, userId: string): Promise<void> {
@@ -235,7 +243,7 @@ async function pullTransactions(db: QuadraDB): Promise<void> {
   await pullSince<ServerTx>(
     db,
     'transactions',
-    '*, transaction_lines(category_id, amount, flag_override)',
+    '*, transaction_lines(category_id, amount, flag_override), payments(pay_date, amount), accruals(period, amount)',
     async (rows) => {
       await db.transaction('rw', [db.transactions, db.outbox], async () => {
         for (const row of rows) {
@@ -261,6 +269,8 @@ async function pullTransactions(db: QuadraDB): Promise<void> {
             client_modified_at: row.client_modified_at,
             deleted_at: row.deleted_at,
             lines: sortLines(row.transaction_lines.map((l) => ({ ...l, amount: Number(l.amount) }))),
+            payments: (row.payments ?? []).map((p) => ({ pay_date: p.pay_date, amount: Number(p.amount) })),
+            accruals: (row.accruals ?? []).map((a) => ({ period: a.period, amount: Number(a.amount) })),
           });
         }
       });

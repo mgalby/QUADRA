@@ -1,17 +1,17 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { BottomBar } from '../components/BottomBar';
+import { BasisToggle } from '../components/BasisToggle';
 import { SyncPill } from '../components/SyncPill';
+import { lineShares, slicesInMonth, type Basis, type Slice } from '../lib/basis';
 import type { QuadraDB } from '../lib/db';
-import { addMonths, longDate, monthLabel, monthRange, todayISO } from '../lib/dates';
+import { addMonths, longDate, monthLabel, todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
-import { formatMoney, toCents } from '../lib/money';
+import { formatMoney } from '../lib/money';
 import type { Nav } from '../lib/nav';
-import { isScheduled } from '../lib/stats';
-import type { Transaction } from '../lib/types';
 
-export function Movements({ db, master, nav, month, setMonth, macroId, categoryId, currency, pending }: {
+export function Movements({ db, master, nav, month, setMonth, macroId, categoryId, basis, setBasis, currency, pending }: {
   db: QuadraDB;
   master: MasterData;
   nav: Nav;
@@ -19,12 +19,14 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
   setMonth: (m: string) => void;
   macroId?: string;
   categoryId?: string;
+  basis: Basis;
+  setBasis: (b: Basis) => void;
   currency: string;
   pending: number;
 }) {
   const { t, locale } = useI18n();
-  const [from, to] = monthRange(month);
-  const txs = useLiveQuery(() => db.transactions.where('tx_date').between(from, to, true, false).toArray(), [db, from, to]);
+  // tutti i movimenti: pagamenti e quote possono cadere in un mese diverso dalla data del movimento
+  const txs = useLiveQuery(() => db.transactions.toArray(), [db]);
   const merchants = useLiveQuery(() => db.merchants.toArray(), [db]);
   const waiting = useLiveQuery(() => db.outbox.toArray(), [db]);
   const today = todayISO();
@@ -35,32 +37,29 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
   const category = categoryId ? master.categoryById.get(categoryId) : undefined;
   const filterMacro = category ? master.macroById.get(category.macro_id) : macro;
 
-  // con un filtro conta solo la quota del movimento che sta in quella categoria (o macro)
-  const quotaOf = (tx: Transaction): number => {
-    if (!categoryId && !macroId) return toCents(tx.total);
-    return tx.lines
-      .filter((l) => (categoryId ? l.category_id === categoryId : master.categoryById.get(l.category_id)?.macro_id === macroId))
-      .reduce((sum, l) => sum + toCents(l.amount), 0);
-  };
+  // con un filtro conta solo la parte della fetta che sta in quella categoria (o macro)
+  const matches = (categoryOfLine: string) =>
+    categoryId ? categoryOfLine === categoryId : macroId ? master.categoryById.get(categoryOfLine)?.macro_id === macroId : true;
+  const quotaOf = (slice: Slice): number =>
+    !categoryId && !macroId
+      ? slice.cents
+      : lineShares(slice.tx, slice.cents).filter((l) => matches(l.line.category_id)).reduce((sum, l) => sum + l.cents, 0);
 
   const days = useMemo(() => {
-    const visible = (txs ?? []).filter(
-      (tx) =>
-        !tx.deleted_at &&
-        (!categoryId || tx.lines.some((l) => l.category_id === categoryId)) &&
-        (!macroId || tx.lines.some((l) => master.categoryById.get(l.category_id)?.macro_id === macroId)),
+    const visible = slicesInMonth(txs ?? [], basis, month, today).filter(
+      (sl) => (!categoryId && !macroId) || sl.tx.lines.some((l) => matches(l.category_id)),
     );
-    visible.sort((a, b) => b.tx_date.localeCompare(a.tx_date) || b.client_modified_at.localeCompare(a.client_modified_at));
-    const groups: { date: string; items: Transaction[]; net: number }[] = [];
-    for (const tx of visible) {
+    visible.sort((a, b) => b.date.localeCompare(a.date) || b.tx.client_modified_at.localeCompare(a.tx.client_modified_at) || a.seq - b.seq);
+    const groups: { date: string; items: Slice[]; net: number }[] = [];
+    for (const sl of visible) {
       let g = groups[groups.length - 1];
-      if (!g || g.date !== tx.tx_date) groups.push((g = { date: tx.tx_date, items: [], net: 0 }));
-      g.items.push(tx);
-      g.net += quotaOf(tx) * (tx.tx_kind === 'income' ? 1 : -1);
+      if (!g || g.date !== sl.date) groups.push((g = { date: sl.date, items: [], net: 0 }));
+      g.items.push(sl);
+      g.net += quotaOf(sl) * (sl.tx.tx_kind === 'income' ? 1 : -1);
     }
     return groups;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [txs, macroId, categoryId, master.categoryById]);
+  }, [txs, basis, month, macroId, categoryId, master.categoryById]);
 
   return (
     <main className="page with-bar">
@@ -77,6 +76,7 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
       </header>
 
       <SyncPill pending={pending} onClick={() => nav.go({ name: 'settings' })} />
+      <BasisToggle basis={basis} setBasis={setBasis} />
 
       {(category ?? macro) && (
         <button type="button" className="filter" onClick={() => nav.tab({ name: 'movements' })} aria-label={t('mov.clearFilter', { name: (category ?? macro)!.name })}>
@@ -94,24 +94,26 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
             <h2>{day.date === today ? t('date.today') : longDate(day.date, locale)}</h2>
             <span className="muted tiny num">{formatMoney(day.net, currency, locale, { sign: true })}</span>
           </div>
-          {day.items.map((tx) => {
+          {day.items.map((slice) => {
+            const tx = slice.tx;
             const split = tx.lines.length > 1;
             const cat = master.categoryById.get(tx.lines[0]?.category_id);
             const m = cat ? master.macroById.get(cat.macro_id) : undefined;
             const color = split ? '#9AA3AF' : cat?.shade ?? m?.color ?? '#8B93A0';
             const merchant = tx.merchant_id ? merchantName.get(tx.merchant_id) : undefined;
-            const cents = quotaOf(tx);
+            const cents = quotaOf(slice);
+            const partLabel = slice.count > 1 ? t(basis === 'cash' ? 'mov.payment' : 'mov.quota', { n: slice.seq, count: slice.count }) : null;
             const catNames = split ? tx.lines.map((l) => master.categoryById.get(l.category_id)?.name).filter(Boolean).join(' + ') : cat?.name;
             return (
-              <button key={tx.id} type="button" className="tx-row" onClick={() => nav.go({ name: 'entry', kind: tx.tx_kind, txId: tx.id })}>
+              <button key={`${tx.id}:${slice.seq}`} type="button" className="tx-row" onClick={() => nav.go({ name: 'entry', kind: tx.tx_kind, txId: tx.id })}>
                 <span className="chip" style={{ background: `${color}2E`, color }}>
                   <i className={`ph-duotone ph-${split ? 'arrows-split' : cat?.icon ?? 'question'}`} aria-hidden="true" />
                 </span>
                 <span className="tx-main">
                   <span className="tx-title">{merchant ?? (split ? t('mov.multi') : cat?.name) ?? '—'}</span>
                   <span className="muted tiny tx-sub">
-                    {[merchant || split ? catNames : null, tx.note].filter(Boolean).join(' · ')}
-                    {tx.status === 'scheduled' && tx.tx_date <= today ? <span className="tag wait">{t('mov.toConfirm')}</span> : isScheduled(tx, today) && <span className="tag">{t('mov.scheduled')}</span>}
+                    {[merchant || split ? catNames : null, partLabel, tx.note].filter(Boolean).join(' · ')}
+                    {tx.status === 'scheduled' && tx.tx_date <= today ? <span className="tag wait">{t('mov.toConfirm')}</span> : slice.scheduled && <span className="tag">{t('mov.scheduled')}</span>}
                     {waitingIds.has(tx.id) && <span className="tag wait">{t('mov.waiting')}</span>}
                   </span>
                 </span>
