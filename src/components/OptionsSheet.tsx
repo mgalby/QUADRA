@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { addDays, monthLabel } from '../lib/dates';
+import { addDays, addMonths, monthLabel } from '../lib/dates';
 import { evaluate, exprFromCents } from '../lib/calc';
 import { useI18n } from '../lib/i18n';
 import { formatMoney } from '../lib/money';
@@ -40,6 +40,11 @@ export function OptionsSheet({ totalCents, date, plan, notice, currency, onDone,
     setMonths(n);
     setAcc(rows);
     setAccText(rows.map((r) => exprFromCents(r.cents)));
+  }
+  function setOneMonth(month: string) {
+    setStart(month);
+    setAcc([{ month, cents: totalCents }]);
+    setAccText([]);
   }
   function typeAcc(i: number, text: string) {
     const texts = accText.map((x, k) => (k === i ? text : x));
@@ -105,9 +110,17 @@ export function OptionsSheet({ totalCents, date, plan, notice, currency, onDone,
         <p className="opt-hint">{t('opt.acc.hint')}</p>
         <div className="segmented" role="group" aria-label={t('opt.acc.title')}>
           <button type="button" aria-pressed={acc === null} onClick={() => { setAcc(null); setAccText([]); }}>{t('opt.acc.same')}</button>
-          <button type="button" aria-pressed={acc !== null} onClick={() => acc === null && setSpread(start, months)}>{t('opt.acc.spread')}</button>
+          <button type="button" aria-pressed={acc?.length === 1} onClick={() => acc?.length !== 1 && setOneMonth(start === date.slice(0, 7) ? addMonths(start, 1) : start)}>{t('opt.acc.month')}</button>
+          <button type="button" aria-pressed={acc !== null && acc.length > 1} onClick={() => !(acc && acc.length > 1) && setSpread(start, months)}>{t('opt.acc.spread')}</button>
         </div>
-        {acc && (
+        {acc && acc.length === 1 && (
+          <div className="row-fields">
+            <label className="grow">{t('opt.month')}
+              <input type="month" value={acc[0].month} onChange={(e) => e.target.value && setOneMonth(e.target.value)} />
+            </label>
+          </div>
+        )}
+        {acc && acc.length > 1 && (
           <>
             <div className="row-fields">
               <label className="grow">{t('opt.from')}

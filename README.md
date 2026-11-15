@@ -61,6 +61,11 @@ public/
 
 ## Stato
 
+v0.5.1 — In "Più opzioni" la competenza ha tre scelte: Mese del pagamento (default),
+Altro mese (una sola quota in un mese a scelta: anticipo pagato oggi per una cosa di
+febbraio) e Spalma. Il pagamento resta alla data del movimento. Dopo il salvataggio
+la Home apre il mese in cui il movimento cade nella modalità attiva.
+
 v0.5.0 — Cassa e competenza: interruttore Competenza/Cassa in Home e Movimenti
 (preferenza salvata). Ogni movimento si "affetta" in pagamenti (cassa) o quote di
 competenza; senza piano è un pagamento alla data e una quota nel mese. "Più opzioni"

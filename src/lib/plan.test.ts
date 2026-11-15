@@ -77,3 +77,16 @@ describe('piano di un movimento esistente', () => {
     expect(planToTx({ acc: [{ month: '2027-01', cents: 5000 }, { month: '2027-02', cents: 5000 }], pay: null }, 10000, '2026-11-10').accrual_mode).toBe('spread');
   });
 });
+
+describe('una sola quota in un altro mese (anticipo oggi, competenza a febbraio)', () => {
+  it('si salva con modo "date" e il pagamento resta alla data del movimento', () => {
+    const r = planToTx({ acc: [{ month: '2027-02', cents: 50000 }], pay: null }, 50000, '2026-11-15');
+    expect(r.accrual_mode).toBe('date');
+    expect(r.payments).toEqual([{ pay_date: '2026-11-15', amount: 500 }]);
+    expect(r.accruals).toEqual([{ period: '2027-02-01', amount: 500 }]);
+  });
+  it('riaprendolo il piano torna uguale', () => {
+    const base = { id: 'x', tx_date: '2026-11-15', total: 500, tx_kind: 'expense', lines: [], payments: [{ pay_date: '2026-11-15', amount: 500 }], accruals: [{ period: '2027-02-01', amount: 500 }] } as unknown as Transaction;
+    expect(planFromTx(base)).toEqual({ acc: [{ month: '2027-02', cents: 50000 }], pay: null });
+  });
+});
