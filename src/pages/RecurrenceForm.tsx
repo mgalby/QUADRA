@@ -73,7 +73,6 @@ export function RecurrenceForm({ db, master, id, currency, onBack, onDone }: {
   }, [db, id, today]);
 
   const isPlan = kind === 'plan';
-  const locked = !!existing; // il tipo non cambia dopo la creazione
   const readOnly = existing?.kind === 'plan';
   const cents = evaluate(amount);
   const n = Math.max(1, Math.min(120, Math.floor(Number(count)) || 0));
@@ -153,7 +152,7 @@ export function RecurrenceForm({ db, master, id, currency, onBack, onDone }: {
 
       <div className="segmented">
         {(['fixed', 'variable', 'plan'] as const).map((k) => (
-          <button key={k} type="button" aria-pressed={kind === k} disabled={locked && kind !== k} onClick={() => setKind(k)}>
+          <button key={k} type="button" aria-pressed={kind === k} disabled={existing?.kind === 'plan' ? kind !== k : !!existing && k === 'plan'} onClick={() => setKind(k)}>
             {t(`rec.kind.${k}`)}
           </button>
         ))}

@@ -29,8 +29,10 @@ const queueTx = (db: QuadraDB, id: string) => db.outbox.put({ key: `tx:${id}`, k
 
 /** Crea o modifica una ricorrenza fissa o variabile e riallinea le scadenze future. */
 export async function saveRecurrence(db: QuadraDB, input: RecurrenceInput, today: string): Promise<Recurrence> {
+  let kindChanged = false;
   const rec = await db.transaction('rw', [db.recurrences, db.merchants, db.outbox], async () => {
     const previous = input.id ? await db.recurrences.get(input.id) : undefined;
+    kindChanged = !!previous && previous.kind !== input.kind;
     const merchantId = await findOrCreateMerchant(db, input.merchantName);
     const s = input.schedule;
     const r: Recurrence = {
@@ -59,7 +61,7 @@ export async function saveRecurrence(db: QuadraDB, input: RecurrenceInput, today
     await queueRec(db, r.id);
     return r;
   });
-  await reconcileFuture(db, rec, today);
+  await reconcileFuture(db, rec, today, kindChanged);
   return rec;
 }
 
@@ -152,7 +154,7 @@ export async function endRecurrence(db: QuadraDB, id: string, today: string): Pr
  * (importo, categoria, esercizio) oppure spariscono se la data non esiste più.
  * Quelle passate non si toccano mai.
  */
-async function reconcileFuture(db: QuadraDB, rec: Recurrence, today: string): Promise<void> {
+async function reconcileFuture(db: QuadraDB, rec: Recurrence, today: string, kindChanged = false): Promise<void> {
   const sched = scheduleOf(rec);
   const valid = new Set(sched ? occurrenceDates(sched, addDays(today, LOOKAHEAD_DAYS)) : []);
   await db.transaction('rw', [db.transactions, db.outbox], async () => {
@@ -164,9 +166,12 @@ async function reconcileFuture(db: QuadraDB, rec: Recurrence, today: string): Pr
       }
       const cents = toCents(rec.reference_amount ?? tx.total);
       const sameLine = tx.lines[0];
-      if (tx.total === fromCents(cents) && sameLine?.category_id === rec.category_id && tx.merchant_id === rec.merchant_id && tx.note === rec.note) continue;
+      // se la ricorrenza passa da fissa a variabile (o viceversa) le scadenze future seguono il nuovo tipo
+      const status = !kindChanged ? tx.status : rec.kind === 'variable' ? 'scheduled' : 'confirmed';
+      if (status === tx.status && tx.total === fromCents(cents) && sameLine?.category_id === rec.category_id && tx.merchant_id === rec.merchant_id && tx.note === rec.note) continue;
       await db.transactions.put({
         ...tx,
+        status,
         total: fromCents(cents),
         merchant_id: rec.merchant_id,
         note: rec.note,
