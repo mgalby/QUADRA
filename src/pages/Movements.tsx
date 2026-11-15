@@ -11,13 +11,14 @@ import type { Nav } from '../lib/nav';
 import { isScheduled } from '../lib/stats';
 import type { Transaction } from '../lib/types';
 
-export function Movements({ db, master, nav, month, setMonth, macroId, currency, pending }: {
+export function Movements({ db, master, nav, month, setMonth, macroId, categoryId, currency, pending }: {
   db: QuadraDB;
   master: MasterData;
   nav: Nav;
   month: string;
   setMonth: (m: string) => void;
   macroId?: string;
+  categoryId?: string;
   currency: string;
   pending: number;
 }) {
@@ -31,10 +32,15 @@ export function Movements({ db, master, nav, month, setMonth, macroId, currency,
   const merchantName = useMemo(() => new Map((merchants ?? []).map((m) => [m.id, m.name])), [merchants]);
   const waitingIds = useMemo(() => new Set((waiting ?? []).filter((o) => o.kind === 'tx').map((o) => o.id)), [waiting]);
   const macro = macroId ? master.macroById.get(macroId) : undefined;
+  const category = categoryId ? master.categoryById.get(categoryId) : undefined;
+  const filterMacro = category ? master.macroById.get(category.macro_id) : macro;
 
   const days = useMemo(() => {
     const visible = (txs ?? []).filter(
-      (tx) => !tx.deleted_at && (!macroId || tx.lines.some((l) => master.categoryById.get(l.category_id)?.macro_id === macroId)),
+      (tx) =>
+        !tx.deleted_at &&
+        (!categoryId || tx.lines.some((l) => l.category_id === categoryId)) &&
+        (!macroId || tx.lines.some((l) => master.categoryById.get(l.category_id)?.macro_id === macroId)),
     );
     visible.sort((a, b) => b.tx_date.localeCompare(a.tx_date) || b.client_modified_at.localeCompare(a.client_modified_at));
     const groups: { date: string; items: Transaction[]; net: number }[] = [];
@@ -45,7 +51,7 @@ export function Movements({ db, master, nav, month, setMonth, macroId, currency,
       g.net += toCents(tx.total) * (tx.tx_kind === 'income' ? 1 : -1);
     }
     return groups;
-  }, [txs, macroId, master.categoryById]);
+  }, [txs, macroId, categoryId, master.categoryById]);
 
   return (
     <main className="page with-bar">
@@ -63,10 +69,10 @@ export function Movements({ db, master, nav, month, setMonth, macroId, currency,
 
       <SyncPill pending={pending} onClick={() => nav.go({ name: 'settings' })} />
 
-      {macro && (
-        <button type="button" className="filter" onClick={() => nav.tab({ name: 'movements' })} aria-label={t('mov.clearFilter', { name: macro.name })}>
-          <i className={`ph-duotone ph-${macro.icon}`} style={{ color: macro.color }} aria-hidden="true" />
-          {macro.name}
+      {(category ?? macro) && (
+        <button type="button" className="filter" onClick={() => nav.tab({ name: 'movements' })} aria-label={t('mov.clearFilter', { name: (category ?? macro)!.name })}>
+          <i className={`ph-duotone ph-${(category ?? macro)!.icon}`} style={{ color: category?.shade ?? filterMacro?.color }} aria-hidden="true" />
+          {(category ?? macro)!.name}
           <i className="ph ph-x" aria-hidden="true" />
         </button>
       )}

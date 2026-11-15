@@ -61,6 +61,11 @@ public/
 
 ## Stato
 
+v0.3.1 — Home con vista Macro/Categorie: pulsante nella testata per cambiare al volo,
+vista iniziale tra i parametri in Impostazioni (per dispositivo, in `meta` locale
+`pref:home_view`); nella vista Categorie le tonalità sono automatiche per macro
+(`src/lib/colors.ts`) e il tocco filtra Movimenti per categoria.
+
 v0.3.0 — Ricorrenze e piani rate, oltre a quanto già c'era dalla v0.2.0
 (Home con ciambella, inserimento rapido, movimenti, sincronizzazione local-first).
 

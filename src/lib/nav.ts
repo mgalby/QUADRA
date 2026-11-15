@@ -3,7 +3,7 @@ import type { TxKind } from './types';
 
 export type Screen =
   | { name: 'home' }
-  | { name: 'movements'; macroId?: string }
+  | { name: 'movements'; macroId?: string; categoryId?: string }
   | { name: 'entry'; kind: TxKind; txId?: string }
   | { name: 'recurrences' }
   | { name: 'recurrence'; id?: string }

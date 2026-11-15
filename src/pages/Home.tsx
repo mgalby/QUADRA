@@ -9,11 +9,12 @@ import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
 import { formatMoney } from '../lib/money';
 import type { Nav } from '../lib/nav';
-import { donutSlices, summarize } from '../lib/stats';
+import { shades } from '../lib/colors';
+import { donutSlices, donutSlicesByCategory, summarize } from '../lib/stats';
 
 const OTHER_COLOR = '#8B93A0';
 
-export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, currency, pending }: {
+export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, view, setView, currency, pending }: {
   db: QuadraDB;
   master: MasterData;
   nav: Nav;
@@ -21,6 +22,8 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
   setMonth: (m: string) => void;
   onlyDisc: boolean;
   setOnlyDisc: (v: boolean) => void;
+  view: 'macro' | 'category';
+  setView: (v: 'macro' | 'category') => void;
   currency: string;
   pending: number;
 }) {
@@ -36,19 +39,54 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
   const summary = useMemo(() => summarize(txs ?? [], master.categoryById, todayISO(), onlyDisc), [txs, master.categoryById, onlyDisc]);
   const pct = (cents: number) => (summary.shown > 0 ? Math.round((cents / summary.shown) * 100) : 0);
 
-  const slices: DonutSlice[] = donutSlices(summary.byMacro, summary.shown).map((s) => {
-    const macro = master.macroById.get(s.key);
-    const name = macro?.name ?? t('home.other');
+  // una voce per macro o per categoria, con colore, icona e cosa si apre al tocco
+  interface Item { key: string; name: string; icon: string; color: string; cents: number; scheduledCents: number; open: () => void }
+  const items: Item[] = useMemo(() => {
+    if (view === 'macro') {
+      return summary.byMacro.map((m) => {
+        const macro = master.macroById.get(m.macroId);
+        return {
+          key: m.macroId, name: macro?.name ?? t('home.other'), icon: macro?.icon ?? 'dots-three', color: macro?.color ?? OTHER_COLOR,
+          cents: m.cents, scheduledCents: m.scheduledCents,
+          open: () => nav.tab({ name: 'movements', macroId: master.macroById.has(m.macroId) ? m.macroId : undefined }),
+        };
+      });
+    }
+    // per categoria: tonalità diverse del colore della macro, a meno che la categoria ne abbia una sua
+    const perMacro = new Map<string, number>();
+    for (const c of summary.byCategory) perMacro.set(c.macroId, (perMacro.get(c.macroId) ?? 0) + 1);
+    const seen = new Map<string, number>();
+    const tones = new Map<string, string[]>();
+    return summary.byCategory.map((c) => {
+      const cat = master.categoryById.get(c.categoryId);
+      const macro = master.macroById.get(c.macroId);
+      const base = macro?.color ?? OTHER_COLOR;
+      if (!tones.has(c.macroId)) tones.set(c.macroId, shades(base, perMacro.get(c.macroId) ?? 1));
+      const i = seen.get(c.macroId) ?? 0;
+      seen.set(c.macroId, i + 1);
+      return {
+        key: c.categoryId, name: cat?.name ?? t('home.other'), icon: cat?.icon ?? 'dots-three', color: cat?.shade ?? tones.get(c.macroId)![i],
+        cents: c.cents, scheduledCents: c.scheduledCents,
+        open: () => nav.tab({ name: 'movements', categoryId: cat ? c.categoryId : undefined }),
+      };
+    });
+  }, [view, summary, master.macroById, master.categoryById, nav, t]);
+  const itemByKey = new Map(items.map((i) => [i.key, i]));
+
+  const rawSlices = view === 'macro' ? donutSlices(summary.byMacro, summary.shown) : donutSlicesByCategory(summary.byCategory, summary.shown);
+  const slices: DonutSlice[] = rawSlices.map((sl) => {
+    const item = itemByKey.get(sl.key);
+    const name = item?.name ?? t('home.other');
     return {
-      key: s.key,
-      share: s.share,
-      scheduledShare: s.scheduledCents / summary.shown,
-      color: macro?.color ?? OTHER_COLOR,
-      icon: macro?.icon ?? 'dots-three',
-      label: `${name}, ${Math.round(s.share * 100)}%`,
+      key: sl.key,
+      share: sl.share,
+      scheduledShare: sl.scheduledCents / summary.shown,
+      color: item?.color ?? OTHER_COLOR,
+      icon: item?.icon ?? 'dots-three',
+      label: `${name}, ${Math.round(sl.share * 100)}%`,
     };
   });
-  const openMacro = (key: string) => nav.tab({ name: 'movements', macroId: master.macroById.has(key) ? key : undefined });
+  const openSlice = (key: string) => itemByKey.get(key)?.open();
   const balance = summary.income - summary.expense;
   const title = monthLabel(month, locale);
 
@@ -65,6 +103,15 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
           </button>
         </div>
         <div className="row-tight">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t(view === 'macro' ? 'home.viewToCategory' : 'home.viewToMacro')}
+            title={t(view === 'macro' ? 'home.viewToCategory' : 'home.viewToMacro')}
+            onClick={() => setView(view === 'macro' ? 'category' : 'macro')}
+          >
+            <i className={view === 'macro' ? 'ph ph-chart-donut' : 'ph-duotone ph-chart-donut'} aria-hidden="true" />
+          </button>
           <button
             type="button"
             className={onlyDisc ? 'icon-btn on' : 'icon-btn'}
@@ -88,7 +135,7 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
         </button>
       )}
 
-      <Donut slices={slices} onSelect={openMacro} label={t('home.donut', { month: title })}>
+      <Donut slices={slices} onSelect={openSlice} label={t(view === 'macro' ? 'home.donut' : 'home.donutCat', { month: title })}>
         <span className="muted tiny">{onlyDisc ? t('home.discretionary') : t('home.expenses')}</span>
         <span className="big num">{money(summary.shown)}</span>
         <span className={`num balance ${balance < 0 ? 'neg' : 'pos'}`}>{t('home.balance', { amount: money(balance, true) })}</span>
@@ -110,27 +157,23 @@ export function Home({ db, master, nav, month, setMonth, onlyDisc, setOnlyDisc, 
       </div>
 
       <section className="card">
-        <h2>{t('home.byMacro')}</h2>
-        {summary.byMacro.length === 0 && <p className="muted small empty">{t('home.noTx')}</p>}
-        {summary.byMacro.map((m) => {
-          const macro = master.macroById.get(m.macroId);
-          const color = macro?.color ?? OTHER_COLOR;
-          return (
-            <button key={m.macroId} type="button" className="macro-row" onClick={() => openMacro(m.macroId)}>
-              <span className="chip" style={{ background: `${color}2E`, color }}>
-                <i className={`ph-duotone ph-${macro?.icon ?? 'dots-three'}`} aria-hidden="true" />
+        <h2>{t(view === 'macro' ? 'home.byMacro' : 'home.byCategory')}</h2>
+        {items.length === 0 && <p className="muted small empty">{t('home.noTx')}</p>}
+        {items.map((m) => (
+          <button key={m.key} type="button" className="macro-row" onClick={m.open}>
+            <span className="chip" style={{ background: `${m.color}2E`, color: m.color }}>
+              <i className={`ph-duotone ph-${m.icon}`} aria-hidden="true" />
+            </span>
+            <span className="macro-main">
+              <span className="macro-line">
+                <span>{m.name}</span>
+                <span className="num">{money(m.cents)}</span>
               </span>
-              <span className="macro-main">
-                <span className="macro-line">
-                  <span>{macro?.name ?? t('home.other')}</span>
-                  <span className="num">{money(m.cents)}</span>
-                </span>
-                <span className="bar"><span style={{ width: `${(m.cents / summary.shown) * 100}%`, background: color }} /></span>
-              </span>
-              <span className="pct num">{pct(m.cents)}%</span>
-            </button>
-          );
-        })}
+              <span className="bar"><span style={{ width: `${(m.cents / summary.shown) * 100}%`, background: m.color }} /></span>
+            </span>
+            <span className="pct num">{pct(m.cents)}%</span>
+          </button>
+        ))}
       </section>
 
       <BottomBar nav={nav} />

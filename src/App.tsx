@@ -49,6 +49,10 @@ function Shell({ userId, email }: { userId: string; email: string }) {
   const [month, setMonth] = useState(() => monthOf(todayISO()));
   const [onlyDisc, setOnlyDisc] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
+  // vista della ciambella: la preferenza (per dispositivo) decide l'avvio, il pulsante nella Home la cambia al volo
+  const [homeView, setHomeView] = useState<'macro' | 'category' | null>(null);
+  const savedView = useLiveQuery(() => db.meta.get('pref:home_view'), [db]);
+  const view: 'macro' | 'category' = homeView ?? (savedView?.value === 'category' ? 'category' : 'macro');
 
   const profile = useLiveQuery(() => db.profile.get(userId), [db, userId]);
   const pending = useLiveQuery(() => db.outbox.filter((o) => o.kind === 'tx').count(), [db]) ?? 0;
@@ -121,10 +125,10 @@ function Shell({ userId, email }: { userId: string; email: string }) {
   return (
     <>
       {s.name === 'home' && (
-        <Home db={db} master={master} nav={nav} month={month} setMonth={setMonth} onlyDisc={onlyDisc} setOnlyDisc={setOnlyDisc} currency={currency} pending={pending} />
+        <Home db={db} master={master} nav={nav} month={month} setMonth={setMonth} onlyDisc={onlyDisc} setOnlyDisc={setOnlyDisc} view={view} setView={setHomeView} currency={currency} pending={pending} />
       )}
       {s.name === 'movements' && (
-        <Movements db={db} master={master} nav={nav} month={month} setMonth={setMonth} macroId={s.macroId} currency={currency} pending={pending} />
+        <Movements db={db} master={master} nav={nav} month={month} setMonth={setMonth} macroId={s.macroId} categoryId={s.categoryId} currency={currency} pending={pending} />
       )}
       {s.name === 'entry' && (
         <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} currency={currency} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
@@ -132,7 +136,7 @@ function Shell({ userId, email }: { userId: string; email: string }) {
       {s.name === 'recurrences' && <Recurrences db={db} master={master} nav={nav} currency={currency} pending={pending} />}
       {s.name === 'recurrence' && <RecurrenceForm key={s.id ?? 'new'} db={db} master={master} id={s.id} currency={currency} onBack={nav.back} onDone={onRecDone} />}
       {s.name === 'settings' && (
-        <Settings db={db} master={master} nav={nav} userId={userId} email={email} pending={pending} onSync={sync} />
+        <Settings db={db} master={master} nav={nav} userId={userId} email={email} pending={pending} onSync={sync} view={savedView?.value === 'category' ? 'category' : 'macro'} onViewPref={(v) => { void db.meta.put({ key: 'pref:home_view', value: v }); setHomeView(v); }} />
       )}
       {toast && <Toast toast={toast} onClose={closeToast} />}
     </>

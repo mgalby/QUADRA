@@ -7,7 +7,7 @@ import type { Nav } from '../lib/nav';
 import { useSyncState } from '../lib/sync';
 
 /** Impostazioni, per ora ridotte a profilo, stato della sincronizzazione e uscita. */
-export function Settings({ db, master, nav, userId, email, pending, onSync }: {
+export function Settings({ db, master, nav, userId, email, pending, onSync, view, onViewPref }: {
   db: QuadraDB;
   master: MasterData;
   nav: Nav;
@@ -15,6 +15,8 @@ export function Settings({ db, master, nav, userId, email, pending, onSync }: {
   email: string;
   pending: number;
   onSync: () => void;
+  view: 'macro' | 'category';
+  onViewPref: (v: 'macro' | 'category') => void;
 }) {
   const { signOut } = useAuth();
   const { t, locale } = useI18n();
@@ -66,6 +68,16 @@ export function Settings({ db, master, nav, userId, email, pending, onSync }: {
         {(errors ?? []).map((e) => (
           <p key={e.key} className="error">{e.error}</p>
         ))}
+      </section>
+
+      <section className="card">
+        <h2>{t('set.view')}</h2>
+        <div className="segmented" role="group" aria-label={t('set.view')}>
+          {(['macro', 'category'] as const).map((v) => (
+            <button key={v} type="button" aria-pressed={view === v} onClick={() => onViewPref(v)}>{t(`set.view.${v}`)}</button>
+          ))}
+        </div>
+        <p className="muted small">{t('set.view.hint')}</p>
       </section>
 
       <section className="card">

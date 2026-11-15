@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { donutSlices, summarize } from './stats';
+import { donutSlices, donutSlicesByCategory, summarize } from './stats';
 import type { Category, Transaction } from './types';
 
 const cat = (id: string, macro_id: string, flag: Category['flag']): [string, Category] => [
@@ -61,4 +61,17 @@ describe('spicchi della ciambella', () => {
     expect(slices.reduce((n, x) => n + x.share, 0)).toBeCloseTo(1);
   });
   it('mese vuoto', () => expect(donutSlices([], 0)).toEqual([]));
+});
+
+describe('per categoria', () => {
+  const t = [tx('expense', 'spesa', 60), tx('expense', 'bar', 30), tx('expense', 'bar', 9), tx('expense', 'spesa', 1)];
+  it('raggruppa per macro (la più pesante prima) e ordina per importo', () => {
+    const s = summarize(t, cats, '2026-11-14');
+    expect(s.byCategory.map((c) => [c.categoryId, c.cents])).toEqual([['spesa', 6100], ['bar', 3900]]);
+  });
+  it('gli spicchi sotto il 3% finiscono in Altro', () => {
+    const s = summarize(t, cats, '2026-11-14');
+    expect(donutSlicesByCategory(s.byCategory, s.shown).map((x) => x.key)).toEqual(['spesa', 'bar']);
+    expect(donutSlicesByCategory([{ categoryId: 'a', macroId: 'M', cents: 9900, scheduledCents: 0 }, { categoryId: 'b', macroId: 'M', cents: 100, scheduledCents: 0 }], 10000).map((x) => x.key)).toEqual(['a', 'other']);
+  });
 });
