@@ -7,6 +7,19 @@ import './styles.css';
 import { App } from './App';
 import { AuthProvider } from './auth/AuthProvider';
 import { I18nProvider } from './lib/i18n';
+import { registerSW } from 'virtual:pwa-register';
+
+// Aggiornamento automatico: l'app cerca una versione nuova all'apertura, quando si
+// torna sulla scheda e ogni ora. Appena la nuova è pronta la pagina si ricarica da sola.
+registerSW({
+  immediate: true,
+  onRegisteredSW(_url, registration) {
+    if (!registration) return;
+    const check = () => void registration.update().catch(() => undefined); // senza rete non fa nulla
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
+    setInterval(check, 60 * 60 * 1000);
+  },
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
