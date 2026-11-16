@@ -61,6 +61,8 @@ public/
 
 ## Stato
 
+v0.6.2 — Data su PC: nella schermata di inserimento un clic sulla data apre subito il calendario (prima su desktop non succedeva nulla).
+
 v0.6.1 — Rettifica più visibile: aprendo un movimento in valuta, sotto l'importo
 compare "≈ x € · stimato · Rettifica" (o "rettificato"); toccandolo si apre Più opzioni
 con il cursore sull'addebito reale. Dall'elenco "da rettificare" il foglio si apre

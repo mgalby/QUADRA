@@ -368,7 +368,7 @@ export function Entry({ db, master, kind: initialKind, txId, adjust, currency, t
           <label className="pill-field date">
             <i className="ph ph-calendar-blank" aria-hidden="true" />
             <span>{dateLabel}</span>
-            <input type="date" aria-label={t('entry.date')} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+            <input type="date" aria-label={t('entry.date')} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} onClick={(e) => { try { e.currentTarget.showPicker?.() } catch { /* già aperto o non supportato */ } }} />
           </label>
           <label className="pill-field grow">
             <i className="ph ph-note-pencil" aria-hidden="true" />
