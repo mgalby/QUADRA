@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../auth/AuthProvider';
 import type { QuadraDB } from '../lib/db';
@@ -8,14 +8,16 @@ import type { Nav } from '../lib/nav';
 import { useSyncState } from '../lib/sync';
 import { FX_COMMON, FX_CURRENCIES } from '../lib/fx';
 import { todayISO } from '../lib/dates';
+import { buildExport } from '../lib/exporter';
 import { loadImports, undoImport } from '../lib/importer';
 import { activeTripId, loadTrips, newTrip, saveTrips, setActiveTrip } from '../lib/trips';
 
 /** Impostazioni, per ora ridotte a profilo, stato della sincronizzazione e uscita. */
-export function Settings({ db, master, nav, userId, email, pending, onSync, view, onViewPref }: {
+export function Settings({ db, master, nav, currency, userId, email, pending, onSync, view, onViewPref }: {
   db: QuadraDB;
   master: MasterData;
   nav: Nav;
+  currency: string;
   userId: string;
   email: string;
   pending: number;
@@ -52,6 +54,39 @@ export function Settings({ db, master, nav, userId, email, pending, onSync, view
 
   const imports = useLiveQuery(() => loadImports(db), [db]) ?? [];
   const [confirmUndo, setConfirmUndo] = useState<string | null>(null);
+
+  // esportazione: di default tutto lo storico, dal primo movimento a oggi
+  const txs = useLiveQuery(() => db.transactions.toArray(), [db]);
+  const merchants = useLiveQuery(() => db.merchants.toArray(), [db]);
+  const today = todayISO();
+  const firstDate = useMemo(
+    () => (txs ?? []).reduce((min, x) => (!x.deleted_at && x.status === 'confirmed' && x.tx_date < min ? x.tx_date : min), today),
+    [txs, today],
+  );
+  const [fromState, setFrom] = useState<string | null>(null);
+  const [toState, setTo] = useState<string | null>(null);
+  const [exported, setExported] = useState<number | null>(null);
+  const from = fromState ?? firstDate;
+  const to = toState ?? today;
+  const rangeOk = from !== '' && to !== '' && from <= to;
+  const preview = useMemo(() => {
+    if (!rangeOk) return null;
+    const merchantName = new Map((merchants ?? []).map((m) => [m.id, m.name]));
+    return buildExport(txs ?? [], from, to, (id) => master.categoryById.get(id)?.name ?? '', (id) => merchantName.get(id) ?? '', currency);
+  }, [txs, merchants, from, to, rangeOk, master.categoryById, currency]);
+  const allHistory = fromState === null && toState === null;
+  function downloadExport() {
+    if (!preview || preview.rows === 0) return;
+    const url = URL.createObjectURL(new Blob([preview.text], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `quadra-${from}_${to}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setExported(preview.rows);
+  }
 
   const time = lastSync ? new Date(lastSync.value).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : '';
   const syncText =
@@ -156,6 +191,31 @@ export function Settings({ db, master, nav, userId, email, pending, onSync, view
             </button>
           </div>
         ))}
+      </section>
+
+      <section className="card">
+        <h2>{t('exp.title')}</h2>
+        <p className="muted small">{t('exp.hint')}</p>
+        <div className="row-fields">
+          <label className="grow">{t('exp.from')}<input type="date" value={from} max={to || undefined} onChange={(e) => { setFrom(e.target.value); setExported(null); }} /></label>
+          <label className="grow">{t('exp.to')}<input type="date" value={to} min={from || undefined} onChange={(e) => { setTo(e.target.value); setExported(null); }} /></label>
+        </div>
+        <div className="row">
+          <span className="small" role="status">{preview && preview.movements > 0 ? t(preview.movements === 1 ? 'exp.count.one' : 'exp.count', { n: preview.movements }) : t('exp.none')}</span>
+          {!allHistory && (
+            <button type="button" className="ghost" onClick={() => { setFrom(null); setTo(null); setExported(null); }}>{t('exp.all')}</button>
+          )}
+        </div>
+        {preview && (preview.split > 0 || preview.lostPlans > 0) && (
+          <div className="exp-notes">
+            {preview.split > 0 && <p className="opt-notice">{t(preview.split === 1 ? 'exp.split.one' : 'exp.split', { n: preview.split })}</p>}
+            {preview.lostPlans > 0 && <p className="opt-notice">{t(preview.lostPlans === 1 ? 'exp.lost.one' : 'exp.lost', { n: preview.lostPlans })}</p>}
+          </div>
+        )}
+        <button type="button" className="ghost" disabled={!preview || preview.rows === 0} onClick={downloadExport}>
+          <i className="ph ph-download-simple" aria-hidden="true" /> {t('exp.download')}
+        </button>
+        {exported !== null && <p className="muted small" role="status">{t('exp.done', { rows: exported })}</p>}
       </section>
 
       <section className="card">

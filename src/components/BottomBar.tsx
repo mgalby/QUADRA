@@ -8,7 +8,7 @@ export function BottomBar({ nav }: { nav: Nav }) {
   const tabs = [
     { name: 'home', icon: 'house', label: t('nav.home'), onClick: () => nav.tab({ name: 'home' }) },
     { name: 'movements', icon: 'list-bullets', label: t('nav.movements'), onClick: () => nav.tab({ name: 'movements' }) },
-    { name: 'stats', icon: 'chart-bar', label: t('nav.stats') },
+    { name: 'stats', icon: 'chart-bar', label: t('nav.stats'), onClick: () => nav.tab({ name: 'stats' }) },
     { name: 'recurrences', icon: 'arrows-clockwise', label: t('nav.recurrences'), onClick: () => nav.tab({ name: 'recurrences' }) },
   ];
   return (
@@ -28,8 +28,6 @@ export function BottomBar({ nav }: { nav: Nav }) {
             type="button"
             className={current === tab.name ? 'tab active' : 'tab'}
             aria-current={current === tab.name ? 'page' : undefined}
-            disabled={!tab.onClick}
-            title={tab.onClick ? undefined : t('nav.soon')}
             onClick={tab.onClick}
           >
             <i className={`${current === tab.name ? 'ph-duotone' : 'ph'} ph-${tab.icon}`} aria-hidden="true" />

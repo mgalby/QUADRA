@@ -23,6 +23,7 @@ import { Recurrences } from './pages/Recurrences';
 import { Import } from './pages/Import';
 import { FxPending } from './pages/FxPending';
 import { Settings } from './pages/Settings';
+import { PERIODS, Stats } from './pages/Stats';
 import { activeTripId, currentTrip, loadTrips } from './lib/trips';
 
 export function App() {
@@ -65,6 +66,15 @@ function Shell({ userId, email }: { userId: string; email: string }) {
   const setBasis = useCallback((b: Basis) => {
     setBasisState(b);
     void db.meta.put({ key: 'pref:basis', value: b });
+  }, [db]);
+
+  // Statistiche: il periodo (3, 6 o 12 mesi) resta salvato su questo dispositivo
+  const [periodState, setPeriodState] = useState<number | null>(null);
+  const savedPeriod = useLiveQuery(() => db.meta.get('pref:stats_months'), [db]);
+  const statsPeriod = periodState ?? PERIODS.find((p) => String(p) === savedPeriod?.value) ?? 12;
+  const setStatsPeriod = useCallback((p: number) => {
+    setPeriodState(p);
+    void db.meta.put({ key: 'pref:stats_months', value: String(p) });
   }, [db]);
 
   const profile = useLiveQuery(() => db.profile.get(userId), [db, userId]);
@@ -148,6 +158,9 @@ function Shell({ userId, email }: { userId: string; email: string }) {
       {s.name === 'movements' && (
         <Movements db={db} master={master} nav={nav} month={month} setMonth={setMonth} macroId={s.macroId} categoryId={s.categoryId} basis={basis} setBasis={setBasis} currency={currency} pending={pending} />
       )}
+      {s.name === 'stats' && (
+        <Stats db={db} master={master} nav={nav} setMonth={setMonth} period={statsPeriod} setPeriod={setStatsPeriod} onlyDisc={onlyDisc} setOnlyDisc={setOnlyDisc} basis={basis} setBasis={setBasis} currency={currency} pending={pending} />
+      )}
       {s.name === 'entry' && (
         <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} adjust={s.adjust} currency={currency} trip={trip ? { name: trip.name, currency: trip.currency } : null} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
       )}
@@ -156,7 +169,7 @@ function Shell({ userId, email }: { userId: string; email: string }) {
       {s.name === 'recurrences' && <Recurrences db={db} master={master} nav={nav} currency={currency} pending={pending} />}
       {s.name === 'recurrence' && <RecurrenceForm key={s.id ?? 'new'} db={db} master={master} id={s.id} currency={currency} onBack={nav.back} onDone={onRecDone} />}
       {s.name === 'settings' && (
-        <Settings db={db} master={master} nav={nav} userId={userId} email={email} pending={pending} onSync={sync} view={savedView?.value === 'category' ? 'category' : 'macro'} onViewPref={(v) => { void db.meta.put({ key: 'pref:home_view', value: v }); setHomeView(v); }} />
+        <Settings db={db} master={master} nav={nav} currency={currency} userId={userId} email={email} pending={pending} onSync={sync} view={savedView?.value === 'category' ? 'category' : 'macro'} onViewPref={(v) => { void db.meta.put({ key: 'pref:home_view', value: v }); setHomeView(v); }} />
       )}
       {toast && <Toast toast={toast} onClose={closeToast} />}
     </>

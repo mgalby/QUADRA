@@ -61,6 +61,20 @@ public/
 
 ## Stato
 
+v0.8.0 — Statistiche, prima tranche (voce Statistiche nella barra in basso), sempre in euro e
+solo su ciò che è già avvenuto (scadenze future e da confermare escluse). Interruttori
+Competenza/Cassa, periodo 3/6/12 mesi (ricordato sul dispositivo) e "Solo discrezionali"
+(lo stesso della Home). Andamento mensile a barre impilate (discrezionali alla base,
+essenziali sopra, entrate come tacca); toccando un mese: discrezionali, quota sulle uscite e
+scostamento dalla media dei tre mesi precedenti. Categorie nel tempo (prime 5 + Altre, con
+l'andamento mese per mese; il tocco apre i Movimenti filtrati) ed Esercizi principali (primi
+10, numero di movimenti e scontrino medio). Il flag vale riga per riga
+(`line.flag_override ?? cat.flag`). Logica in `src/lib/trends.ts`.
+Esportazione CSV (Impostazioni → Esporta in CSV): intervallo da–a (di default tutto lo
+storico), stesso tracciato dell'import; uno scontrino diviso esce con una riga per categoria,
+di una spesa spalmata o con più pagamenti resta una riga con il primo mese di competenza
+(la schermata avvisa di quanti). Logica in `src/lib/exporter.ts`.
+
 v0.7.0 — Importa da CSV (Impostazioni → Importa): colonne Data, Importo, Segno (U/E),
 Categoria, Esercizio, Note, Competenza (AAAA-MM), Valuta, ImportoOriginale; solo Data e
 Importo sono obbligatorie. Separatore, codifica (UTF-8/Windows-1252), formati di importo e

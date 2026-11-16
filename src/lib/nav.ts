@@ -5,6 +5,7 @@ export type Screen =
   | { name: 'home' }
   | { name: 'movements'; macroId?: string; categoryId?: string }
   | { name: 'entry'; kind: TxKind; txId?: string; adjust?: boolean } // adjust: apre subito il foglio per la rettifica
+  | { name: 'stats' }
   | { name: 'recurrences' }
   | { name: 'fxpending' }
   | { name: 'import' }
