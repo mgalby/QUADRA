@@ -31,7 +31,7 @@ export function FxPending({ db, master, nav, currency }: { db: QuadraDB; master:
             const m = cat ? master.macroById.get(cat.macro_id) : undefined;
             const color = cat?.shade ?? m?.color ?? '#8B93A0';
             return (
-              <button key={tx.id} type="button" className="tx-row" onClick={() => nav.go({ name: 'entry', kind: tx.tx_kind, txId: tx.id })}>
+              <button key={tx.id} type="button" className="tx-row" onClick={() => nav.go({ name: 'entry', kind: tx.tx_kind, txId: tx.id, adjust: true })}>
                 <span className="chip" style={{ background: `${color}2E`, color }}>
                   <i className={`ph-duotone ph-${cat?.icon ?? 'question'}`} aria-hidden="true" />
                 </span>

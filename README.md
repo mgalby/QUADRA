@@ -61,6 +61,12 @@ public/
 
 ## Stato
 
+v0.6.1 — Rettifica più visibile: aprendo un movimento in valuta, sotto l'importo
+compare "≈ x € · stimato · Rettifica" (o "rettificato"); toccandolo si apre Più opzioni
+con il cursore sull'addebito reale. Dall'elenco "da rettificare" il foglio si apre
+da solo. Salvando un movimento ancora stimato, l'avviso dice "resta da rettificare".
+La rettifica resta implicita: scrivere l'addebito reale in euro.
+
 v0.6.0 — Valuta estera. In "Più opzioni" c'è la scelta della valuta: l'importo
 scritto vale in quella valuta e sotto compare "≈ x €". Cambio BCE (Frankfurter) del
 giorno del movimento; offline si usa l'ultimo noto per quella valuta; se non ce n'è,

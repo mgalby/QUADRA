@@ -327,3 +327,6 @@ input[type='date'] { width: 100%; min-width: 0; }
 .trip-form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
 .trip-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted, #9aa3af); }
 .opt-sheet select { margin-bottom: 4px; }
+
+.amount .expr.fx-link { background: transparent; border: 0; padding: 0; min-height: 0; height: auto; font: inherit; font-size: 15px; color: var(--muted); text-align: right; }
+.amount .expr.fx-link u { color: var(--accent); text-underline-offset: 3px; }

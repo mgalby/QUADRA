@@ -25,11 +25,12 @@ const KEYBOARD: Record<string, CalcKey> = { '.': ',', Backspace: 'back', x: '*',
  * Inserimento rapido: importo, esercizio, tap sulla categoria che salva.
  * Con txId modifica un movimento esistente (stessa schermata, già compilata).
  */
-export function Entry({ db, master, kind: initialKind, txId, currency, trip, onBack, onSaved, onDeleted }: {
+export function Entry({ db, master, kind: initialKind, txId, adjust, currency, trip, onBack, onSaved, onDeleted }: {
   db: QuadraDB;
   master: MasterData;
   kind: TxKind;
   txId?: string;
+  adjust?: boolean; // apre subito il foglio per rettificare
   currency: string;
   trip: { name: string; currency: string } | null; // modalità viaggio attiva: la valuta di partenza
   onBack: () => void;
@@ -57,6 +58,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, trip, onB
   const [plan, setPlan] = useState<Plan>(emptyPlan);
   const [optOpen, setOptOpen] = useState(false);
   const [optNotice, setOptNotice] = useState(false);
+  const [focusCharge, setFocusCharge] = useState(false);
   // valuta estera: null = valuta di conto. L'importo scritto è nella valuta estera, il totale in euro si calcola col cambio
   const [fxCur, setFxCur] = useState<string | null>(!txId && trip ? trip.currency : null);
   const [fxRate, setFxRate] = useState<number | null>(null);
@@ -90,6 +92,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, trip, onB
           setSplitLines(sortLines(tx.lines).map((l) => ({ categoryId: l.category_id, cents: toCents(l.amount) })));
         }
       }
+      if (adjust) { setFocusCharge(true); setOptOpen(true); }
       setLoaded(true);
     })();
   }, [db, txId]);
@@ -321,7 +324,13 @@ export function Entry({ db, master, kind: initialKind, txId, currency, trip, onB
         </button>
       ) : (
         <div className="amount" aria-live="polite">
-          <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : equiv}</span>
+          {fxCur && valid && eur !== null && !hasOperator(expr) ? (
+            <button type="button" className="expr num fx-link" onClick={() => { setFocusCharge(true); setOptNotice(false); setOptOpen(true); }}>
+              {equiv}{' · '}{charge !== null ? t('fx.final') : t('fx.estimated')}{' · '}<u>{t('fx.adjust')}</u>
+            </button>
+          ) : (
+            <span className="expr num">{hasOperator(expr) ? displayExpr(expr) : equiv}</span>
+          )}
           <span className={`total num ${cents !== null && !valid ? 'invalid' : ''}`}>{formatMoney(cents ?? 0, shownCur, locale)}</span>
         </div>
       )}
@@ -381,7 +390,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, trip, onB
         <section className="card split-card">
           <div className="row">
             <h2>{t('entry.split.title')}</h2>
-            <button type="button" className={`icon-btn opt-open${isCustom(plan) ? ' on' : ''}`} aria-label={t('opt.open')} disabled={!valid || busy} onClick={() => { setOptNotice(false); setOptOpen(true); }}>
+            <button type="button" className={`icon-btn opt-open${isCustom(plan) ? ' on' : ''}`} aria-label={t('opt.open')} disabled={!valid || busy} onClick={() => { setOptNotice(false); setFocusCharge(false); setOptOpen(true); }}>
               <i className="ph ph-sliders-horizontal" aria-hidden="true" />
             </button>
             <button type="button" className="ghost" onClick={undoSplit}>{t('entry.split.undo')}</button>
@@ -429,7 +438,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, trip, onB
       <section className="card grid-card">
         <div className="row">
           <h2 className={hint ? 'hinting' : ''}>{hint || t('entry.tap')}</h2>
-          <button type="button" className={`icon-btn opt-open${isCustom(plan) ? ' on' : ''}`} aria-label={t('opt.open')} disabled={!valid || busy} onClick={() => { setOptNotice(false); setOptOpen(true); }}>
+          <button type="button" className={`icon-btn opt-open${isCustom(plan) ? ' on' : ''}`} aria-label={t('opt.open')} disabled={!valid || busy} onClick={() => { setOptNotice(false); setFocusCharge(false); setOptOpen(true); }}>
             <i className="ph ph-sliders-horizontal" aria-hidden="true" />
           </button>
           {kind === 'expense' && (
@@ -474,6 +483,7 @@ export function Entry({ db, master, kind: initialKind, txId, currency, trip, onB
           rate={fxRate}
           rateSrc={rateSrc}
           charge={charge}
+          focusCharge={focusCharge}
           onCurrency={changeCurrency}
           onRate={(r) => { setFxRate(r); setRateSrc('manual'); setRateKey(`${fxCur}:${date}`); }}
           onCharge={(eurCents) => setChargeLock(eurCents === null || !fxCur ? null : { cur: fxCur, original: cents!, eur: eurCents })}

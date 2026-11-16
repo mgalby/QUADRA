@@ -17,8 +17,9 @@ function edit<T extends { cents: number }>(rows: T[], i: number, cents: number, 
  * "Più opzioni": competenza (a quale mese appartiene la spesa, anche spalmata su più mesi)
  * e pagamenti (acconto e saldo). Lavora su una bozza: il piano passa al movimento solo con "Fatto".
  */
-export function OptionsSheet({ totalCents: totalOrNull, fxCur, rate, rateSrc, charge, onCurrency, onRate, onCharge, date, plan, notice, currency, onDone, onClose }: {
+export function OptionsSheet({ totalCents: totalOrNull, focusCharge, fxCur, rate, rateSrc, charge, onCurrency, onRate, onCharge, date, plan, notice, currency, onDone, onClose }: {
   totalCents: number | null; // totale in valuta di conto; null finché manca il cambio
+  focusCharge: boolean;      // si apre per rettificare: il cursore va sull'addebito reale
   fxCur: string | null;
   rate: number | null;
   rateSrc: 'live' | 'cached' | 'manual' | null;
@@ -154,7 +155,7 @@ export function OptionsSheet({ totalCents: totalOrNull, fxCur, rate, rateSrc, ch
                   onChange={(e) => { setRateText(e.target.value); const r = parseManualRate(e.target.value); if (r) onRate(r); }} />
               </label>
               <label className="grow">{t('opt.charge')}
-                <input inputMode="decimal" aria-label={t('opt.charge')} placeholder="0,00" value={chargeText} disabled={rate === null && charge === null}
+                <input inputMode="decimal" aria-label={t('opt.charge')} placeholder="0,00" autoFocus={focusCharge} value={chargeText} disabled={rate === null && charge === null}
                   onChange={(e) => {
                     setChargeText(e.target.value);
                     const v = e.target.value.trim() === '' ? null : evaluate(e.target.value);

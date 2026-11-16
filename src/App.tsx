@@ -110,6 +110,7 @@ function Shell({ userId, email }: { userId: string; email: string }) {
 
   function onSaved(tx: Transaction, isNew: boolean) {
     const amount = formatMoney(toCents(tx.total), currency, locale);
+    const stillEstimated = tx.fx_status === 'estimated' ? ` · ${t('fx.stillEstimated')}` : '';
     const category = tx.lines.length > 1 ? t('mov.multi') : master.categoryById.get(tx.lines[0].category_id)?.name ?? '';
     // si torna sul mese del movimento nella vista scelta, per vederlo (con quote o pagamenti spostati, il primo)
     setMonth(monthOf(slicesOf(tx, basis, todayISO())[0]?.date ?? tx.tx_date));
@@ -117,7 +118,7 @@ function Shell({ userId, email }: { userId: string; email: string }) {
     sync();
     setToast({
       id: Date.now(),
-      text: t(isNew ? 'toast.saved' : 'toast.updated', { amount, category }),
+      text: t(isNew ? 'toast.saved' : 'toast.updated', { amount, category }) + stillEstimated,
       // tap sbagliato: cinque secondi per ripensarci
       action: isNew
         ? { label: t('toast.undo'), run: () => void deleteTransaction(db, tx.id).then(sync) }
@@ -147,7 +148,7 @@ function Shell({ userId, email }: { userId: string; email: string }) {
         <Movements db={db} master={master} nav={nav} month={month} setMonth={setMonth} macroId={s.macroId} categoryId={s.categoryId} basis={basis} setBasis={setBasis} currency={currency} pending={pending} />
       )}
       {s.name === 'entry' && (
-        <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} currency={currency} trip={trip ? { name: trip.name, currency: trip.currency } : null} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
+        <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} adjust={s.adjust} currency={currency} trip={trip ? { name: trip.name, currency: trip.currency } : null} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
       )}
       {s.name === 'fxpending' && <FxPending db={db} master={master} nav={nav} currency={currency} />}
       {s.name === 'recurrences' && <Recurrences db={db} master={master} nav={nav} currency={currency} pending={pending} />}

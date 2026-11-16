@@ -4,7 +4,7 @@ import type { TxKind } from './types';
 export type Screen =
   | { name: 'home' }
   | { name: 'movements'; macroId?: string; categoryId?: string }
-  | { name: 'entry'; kind: TxKind; txId?: string }
+  | { name: 'entry'; kind: TxKind; txId?: string; adjust?: boolean } // adjust: apre subito il foglio per la rettifica
   | { name: 'recurrences' }
   | { name: 'fxpending' }
   | { name: 'recurrence'; id?: string }
