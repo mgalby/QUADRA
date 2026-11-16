@@ -48,7 +48,9 @@ src/
   auth/AuthProvider   sessione Supabase (persistente, rinnovo automatico)
   lib/supabase.ts     client
   lib/db.ts           schema IndexedDB (Dexie) — nuove tabelle = nuova version(n)
-  lib/sync.ts         scarico di profilo e anagrafiche
+  lib/sync.ts         coda di invio e scarico (movimenti, ricorrenze, esercizi, macro, categorie)
+  lib/master.ts       regole delle anagrafiche (pure, con test); masterWrite.ts le scrive in locale
+  lib/icons.ts        ricerca delle icone; iconNames.ts è generato da scripts/make_icon_names.mjs
   lib/i18n.tsx        testi italiano / inglese
   lib/types.ts        tipi allineati a quadra_schema_v1.sql
   pages/Login.tsx
@@ -60,6 +62,19 @@ public/
 ```
 
 ## Stato
+
+v0.9.0 — Anagrafiche. Impostazioni → Categorie e macro: creare, rinominare, cambiare icona
+(ricerca in italiano o in inglese) e colore, tipo di spesa, spostare tra macro dello stesso tipo,
+riordinare con le frecce, fissare in una casella della griglia, archiviare, ripristinare, eliminare
+(solo senza storia). Impostazioni → Esercizi: rinomina, fusione dei doppioni (`merged_into_id`: i
+movimenti non si toccano, ovunque compare il nome principale), separazione, eliminazione.
+Importazione CSV: "Crea" per i nomi di categoria sconosciuti. Regole: nomi unici tra le attive
+dello stesso tipo; il cambio di tipo di spesa o di macro vale anche per il passato (con avviso);
+una categoria usata da una ricorrenza attiva non si archivia; archiviare una macro nasconde le
+sue categorie senza riscriverle; deve restare una macro attiva per tipo. Sincronizzazione: nuove
+voci di coda `macro:` e `cat:` (macro ed esercizi, poi categorie, ricorrenze, movimenti); lo
+scarico non sovrascrive le righe in attesa di invio. Nessuna modifica al database né a Dexie.
+Collaudo nel browser: `qa/v090.mjs`.
 
 v0.8.1 — Statistiche: categorie ed esercizi seguono il mese toccato nell'istogramma (all'apertura è il mese in corso); toccare di nuovo la colonna o "Tutto il periodo" mostra l'intero periodo; le barrette sotto le categorie restano su tutto il periodo.
 

@@ -8,10 +8,12 @@ import { useI18n } from '../lib/i18n';
 import { categoryInfos, existingTxs, merchantTopMap, runImport, undoImport, type ImportBatch } from '../lib/importer';
 import { formatMoney } from '../lib/money';
 import type { Nav } from '../lib/nav';
-import type { TxKind } from '../lib/types';
+import { categoryNameProblem, cleanName, macroFlag, nextSortOrder } from '../lib/master';
+import { blankSync, writeMaster } from '../lib/masterWrite';
+import type { Category, Flag, TxKind } from '../lib/types';
 
 /** Importa movimenti da un file CSV: scelta del file, anteprima con le correzioni, conferma. */
-export function Import({ db, master, nav, currency, onSync }: { db: QuadraDB; master: MasterData; nav: Nav; currency: string; onSync: () => void }) {
+export function Import({ db, master, nav, currency, userId, onSync }: { db: QuadraDB; master: MasterData; nav: Nav; currency: string; userId: string; onSync: () => void }) {
   const { t, locale } = useI18n();
   const [fileName, setFileName] = useState('');
   const [table, setTable] = useState<CsvTable | null>(null);
@@ -21,6 +23,30 @@ export function Import({ db, master, nav, currency, onSync }: { db: QuadraDB; ma
   const [busy, setBusy] = useState<number | null>(null);
   const [done, setDone] = useState<ImportBatch | null>(null);
   const [undone, setUndone] = useState(false);
+
+  // "Crea": una categoria nuova per un nome che il file usa e l'app non conosce
+  const [draft, setDraft] = useState<{ key: string; kind: TxKind; name: string; macroId: string; flag: Flag } | null>(null);
+  const allCats = useMemo(() => [...master.categoryById.values()], [master]);
+  const draftProblem = draft ? categoryNameProblem(draft.name, draft.kind, null, allCats, master.macroById) : null;
+  const usualFlag = (macroId: string): Flag =>
+    macroFlag(master.categories.filter((c) => c.macro_id === macroId)) === 'discretionary' ? 'discretionary' : 'essential';
+  function startDraft(g: { key: string; name: string; kind: TxKind }) {
+    const macroId = master.macros.find((m) => m.tx_kind === g.kind)?.id ?? '';
+    setDraft({ key: g.key, kind: g.kind, name: g.name, macroId, flag: usualFlag(macroId) });
+  }
+  async function createCategory() {
+    const macro = draft ? master.macroById.get(draft.macroId) : undefined;
+    if (!draft || !macro || draftProblem) return;
+    const row: Category = {
+      ...blankSync(userId), macro_id: macro.id, name: cleanName(draft.name), icon: macro.icon, shade: null,
+      flag: draft.kind === 'income' ? 'essential' : draft.flag, pinned_slot: null,
+      sort_order: nextSortOrder(allCats.filter((c) => c.macro_id === macro.id && !c.deleted_at)), archived: false,
+    };
+    await writeMaster(db, { categories: [row] });
+    setCatMap((m) => ({ ...m, [draft.key]: row.id }));
+    setDraft(null);
+    onSync();
+  }
 
   const merchantTop = useLiveQuery(() => merchantTopMap(db), [db]);
   const existing = useLiveQuery(() => existingTxs(db), [db]);
@@ -171,6 +197,9 @@ export function Import({ db, master, nav, currency, onSync }: { db: QuadraDB; ma
                       </optgroup>
                     ))}
                   </select>
+                  <button type="button" className="ghost" onClick={(e) => { e.preventDefault(); startDraft(g); }}>
+                    <i className="ph ph-plus" aria-hidden="true" /> {t('imp.create')}
+                  </button>
                 </label>
               ))}
             </section>
@@ -220,6 +249,36 @@ export function Import({ db, master, nav, currency, onSync }: { db: QuadraDB; ma
             {busy !== null ? t('imp.busy', { done: busy, n: toImport.length }) : t('imp.go', { n: toImport.length })}
           </button>
         </>
+      )}
+
+      {draft && (
+        <div className="sheet-backdrop" onClick={() => setDraft(null)}>
+          <div className="sheet md-sheet" role="dialog" aria-label={t('imp.create.title')} onClick={(e) => e.stopPropagation()}>
+            <div className="row">
+              <h2 className="strong">{t('imp.create.title')}</h2>
+              <button type="button" className="icon-btn" aria-label={t('common.close')} onClick={() => setDraft(null)}>
+                <i className="ph ph-x" aria-hidden="true" />
+              </button>
+            </div>
+            <label>{t('md.name')}
+              <input type="text" value={draft.name} maxLength={60} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+            </label>
+            {draftProblem && <p className="error" role="alert">{t(draftProblem === 'duplicate' ? 'md.name.dupCat' : draftProblem === 'long' ? 'md.name.long' : 'md.name.empty')}</p>}
+            <label>{t('md.macro')}
+              <select value={draft.macroId} onChange={(e) => setDraft({ ...draft, macroId: e.target.value, flag: usualFlag(e.target.value) })}>
+                {master.macros.filter((m) => m.tx_kind === draft.kind).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </label>
+            {draft.kind === 'expense' && (
+              <div className="segmented md-wide" role="group" aria-label={t('md.flag')}>
+                {(['essential', 'discretionary'] as const).map((f) => (
+                  <button key={f} type="button" aria-pressed={draft.flag === f} onClick={() => setDraft({ ...draft, flag: f })}>{t(`md.flag.${f}`)}</button>
+                ))}
+              </div>
+            )}
+            <button type="button" className="primary" disabled={!!draftProblem || draft.macroId === ''} onClick={() => void createCategory()}>{t('imp.create.go')}</button>
+          </div>
+        </div>
       )}
     </main>
   );

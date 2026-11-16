@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../auth/AuthProvider';
+import { merchantNameMap } from '../lib/master';
 import type { QuadraDB } from '../lib/db';
 import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
@@ -71,7 +72,7 @@ export function Settings({ db, master, nav, currency, userId, email, pending, on
   const rangeOk = from !== '' && to !== '' && from <= to;
   const preview = useMemo(() => {
     if (!rangeOk) return null;
-    const merchantName = new Map((merchants ?? []).map((m) => [m.id, m.name]));
+    const merchantName = merchantNameMap(merchants ?? []);
     return buildExport(txs ?? [], from, to, (id) => master.categoryById.get(id)?.name ?? '', (id) => merchantName.get(id) ?? '', currency);
   }, [txs, merchants, from, to, rangeOk, master.categoryById, currency]);
   const allHistory = fromState === null && toState === null;
@@ -220,7 +221,14 @@ export function Settings({ db, master, nav, currency, userId, email, pending, on
 
       <section className="card">
         <h2>{t('set.masterdata')}</h2>
-        <p className="small">{t('set.counts', { macros: master.macros.length, categories: master.categories.length })}</p>
+        <p className="muted small">{t('md.settings.hint')}</p>
+        <button type="button" className="ghost" onClick={() => nav.go({ name: 'categories' })}>
+          <i className="ph ph-squares-four" aria-hidden="true" /> {t('md.open.categories')}
+        </button>
+        <button type="button" className="ghost" onClick={() => nav.go({ name: 'merchants' })}>
+          <i className="ph ph-storefront" aria-hidden="true" /> {t('md.open.merchants')}
+        </button>
+        <p className="muted tiny">{t('set.counts', { macros: master.macros.length, categories: master.categories.length, merchants: (merchants ?? []).filter((m) => !m.deleted_at && !m.merged_into_id).length })}</p>
       </section>
 
       <button type="button" className="secondary" onClick={() => void signOut()}>

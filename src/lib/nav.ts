@@ -10,6 +10,10 @@ export type Screen =
   | { name: 'fxpending' }
   | { name: 'import' }
   | { name: 'recurrence'; id?: string }
+  | { name: 'categories' }
+  | { name: 'category'; id?: string; macroId?: string } // senza id: categoria nuova nella macro indicata
+  | { name: 'macro'; id?: string; kind?: TxKind }
+  | { name: 'merchants' }
   | { name: 'settings' };
 
 export interface Nav {

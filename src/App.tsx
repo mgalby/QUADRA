@@ -23,6 +23,10 @@ import { Recurrences } from './pages/Recurrences';
 import { Import } from './pages/Import';
 import { FxPending } from './pages/FxPending';
 import { Settings } from './pages/Settings';
+import { Categories } from './pages/Categories';
+import { CategoryForm } from './pages/CategoryForm';
+import { MacroForm } from './pages/MacroForm';
+import { Merchants } from './pages/Merchants';
 import { PERIODS, Stats } from './pages/Stats';
 import { activeTripId, currentTrip, loadTrips } from './lib/trips';
 
@@ -149,6 +153,13 @@ function Shell({ userId, email }: { userId: string; email: string }) {
     setToast({ id: Date.now(), text: t(msg === 'saved' ? 'toast.recSaved' : 'toast.recEnded') });
   }
 
+  // anagrafiche: si torna all'elenco, parte l'invio e un avviso conferma
+  function onMasterDone(text: string) {
+    nav.back();
+    sync();
+    setToast({ id: Date.now(), text });
+  }
+
   const s = nav.screen;
   return (
     <>
@@ -164,7 +175,15 @@ function Shell({ userId, email }: { userId: string; email: string }) {
       {s.name === 'entry' && (
         <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} adjust={s.adjust} currency={currency} trip={trip ? { name: trip.name, currency: trip.currency } : null} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
       )}
-      {s.name === 'import' && <Import db={db} master={master} nav={nav} currency={currency} onSync={sync} />}
+      {s.name === 'import' && <Import db={db} master={master} nav={nav} currency={currency} userId={userId} onSync={sync} />}
+      {s.name === 'categories' && <Categories db={db} master={master} nav={nav} onSync={sync} />}
+      {s.name === 'category' && master.ready && (
+        <CategoryForm key={s.id ?? `new:${s.macroId}`} db={db} master={master} userId={userId} id={s.id} macroId={s.macroId} onBack={nav.back} onDone={onMasterDone} />
+      )}
+      {s.name === 'macro' && master.ready && (
+        <MacroForm key={s.id ?? `new:${s.kind}`} db={db} master={master} userId={userId} id={s.id} kind={s.kind} onBack={nav.back} onDone={onMasterDone} />
+      )}
+      {s.name === 'merchants' && <Merchants db={db} nav={nav} onSync={sync} onToast={setToast} />}
       {s.name === 'fxpending' && <FxPending db={db} master={master} nav={nav} currency={currency} />}
       {s.name === 'recurrences' && <Recurrences db={db} master={master} nav={nav} currency={currency} pending={pending} />}
       {s.name === 'recurrence' && <RecurrenceForm key={s.id ?? 'new'} db={db} master={master} id={s.id} currency={currency} onBack={nav.back} onDone={onRecDone} />}

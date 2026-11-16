@@ -7,8 +7,8 @@ import { sortLines } from './split';
 
 // ---------------------------------------------------------------------------
 // Sincronizzazione con Supabase.
-// Ordine fisso: prima si invia la coda locale (esercizi, poi movimenti),
-// poi si scaricano le novità. Così il server non sovrascrive mai una
+// Ordine fisso: prima si invia la coda locale (esercizi e macro, categorie,
+// ricorrenze, movimenti), poi si scaricano le novità. Così il server non sovrascrive mai una
 // modifica locale non ancora partita.
 // ---------------------------------------------------------------------------
 
@@ -68,6 +68,27 @@ async function pushMerchant(db: QuadraDB, id: string): Promise<void> {
     await db.merchants.delete(local.id);
     await db.merchants.put(toMerchant(twin));
   });
+}
+
+async function pushMacro(db: QuadraDB, id: string): Promise<void> {
+  const m = await db.macros.get(id);
+  if (!m) return;
+  const { error } = await supabase.from('macros').upsert({
+    id: m.id, tx_kind: m.tx_kind, name: m.name, icon: m.icon, color: m.color, sort_order: m.sort_order,
+    archived: m.archived, client_modified_at: m.client_modified_at, deleted_at: m.deleted_at,
+  });
+  check(error);
+}
+
+async function pushCategory(db: QuadraDB, id: string): Promise<void> {
+  const c = await db.categories.get(id);
+  if (!c) return;
+  const { error } = await supabase.from('categories').upsert({
+    id: c.id, macro_id: c.macro_id, name: c.name, icon: c.icon, shade: c.shade, flag: c.flag,
+    pinned_slot: c.pinned_slot, sort_order: c.sort_order, archived: c.archived,
+    client_modified_at: c.client_modified_at, deleted_at: c.deleted_at,
+  });
+  check(error);
 }
 
 async function pushRecurrence(db: QuadraDB, id: string): Promise<void> {
@@ -130,16 +151,25 @@ async function pushTransaction(db: QuadraDB, id: string): Promise<string | null>
 
 async function pushOutbox(db: QuadraDB): Promise<string | null> {
   const entries = await db.outbox.toArray();
-  // prima gli esercizi, poi le ricorrenze, infine i movimenti: ognuno referenzia i precedenti
-  const rank = { merchant: 0, rec: 1, tx: 2 } as const;
+  // ognuno referenzia i precedenti: esercizi e macro, poi categorie, ricorrenze, infine i movimenti
+  const rank = { merchant: 0, macro: 0, cat: 1, rec: 2, tx: 3 } as const;
   entries.sort((a, b) => rank[a.kind] - rank[b.kind]);
   let firstError: string | null = null;
 
   for (const entry of entries) {
     try {
-      if (entry.kind === 'merchant') {
-        await pushMerchant(db, entry.id);
-        await db.outbox.delete(entry.key);
+      if (entry.kind === 'merchant' || entry.kind === 'macro' || entry.kind === 'cat') {
+        const table = entry.kind === 'merchant' ? db.merchants : entry.kind === 'macro' ? db.macros : db.categories;
+        const sent = (await table.get(entry.id))?.client_modified_at;
+        if (entry.kind === 'merchant') await pushMerchant(db, entry.id);
+        else if (entry.kind === 'macro') await pushMacro(db, entry.id);
+        else await pushCategory(db, entry.id);
+        // se nel frattempo la riga è stata modificata di nuovo, resta in coda
+        await db.transaction('rw', [db.outbox, table], async () => {
+          const cur = await table.get(entry.id);
+          if (cur && cur.client_modified_at !== sent) return;
+          await db.outbox.delete(entry.key);
+        });
       } else if (entry.kind === 'rec') {
         await pushRecurrence(db, entry.id);
         await db.outbox.delete(entry.key);
@@ -190,12 +220,25 @@ async function pullMasterData(db: QuadraDB, userId: string): Promise<void> {
     supabase.from('categories').select('*'),
   ]);
   check(profile.error ?? macros.error ?? categories.error);
-  await db.transaction('rw', [db.profile, db.macros, db.categories], async () => {
+  // Macro e categorie sono poche: si riallinea tutto a ogni scarico. Le righe con una
+  // modifica locale non ancora inviata non si toccano, altrimenti il server la cancellerebbe.
+  await db.transaction('rw', [db.profile, db.macros, db.categories, db.outbox], async () => {
     await db.profile.put(profile.data as Profile);
-    await db.macros.clear();
-    await db.macros.bulkPut(macros.data as Macro[]);
-    await db.categories.clear();
-    await db.categories.bulkPut(categories.data as Category[]);
+    const waiting = new Set((await db.outbox.toArray()).map((o) => o.key));
+    // cosa togliere (sparito dal server) e cosa riscrivere, lasciando stare le righe in attesa di invio
+    const plan = <T extends { id: string }>(local: T[], rows: T[], prefix: string) => {
+      const onServer = new Set(rows.map((r) => r.id));
+      return {
+        gone: local.filter((r) => !onServer.has(r.id) && !waiting.has(`${prefix}:${r.id}`)).map((r) => r.id),
+        put: rows.filter((r) => !waiting.has(`${prefix}:${r.id}`)),
+      };
+    };
+    const m = plan(await db.macros.toArray(), macros.data as Macro[], 'macro');
+    await db.macros.bulkDelete(m.gone);
+    await db.macros.bulkPut(m.put);
+    const c = plan(await db.categories.toArray(), categories.data as Category[], 'cat');
+    await db.categories.bulkDelete(c.gone);
+    await db.categories.bulkPut(c.put);
   });
 }
 

@@ -141,8 +141,8 @@ export interface Installment {
 
 /** Coda di invio: cosa deve ancora arrivare al server. */
 export interface OutboxEntry {
-  key: string; // "tx:<id>", "merchant:<id>" oppure "rec:<id>"
-  kind: 'tx' | 'merchant' | 'rec';
+  key: string; // "tx:<id>", "merchant:<id>", "rec:<id>", "macro:<id>" oppure "cat:<id>"
+  kind: 'tx' | 'merchant' | 'rec' | 'macro' | 'cat';
   id: string;
   error?: string;
 }

@@ -4,6 +4,7 @@ import { BottomBar } from '../components/BottomBar';
 import { BasisToggle } from '../components/BasisToggle';
 import { SyncPill } from '../components/SyncPill';
 import { lineShares, slicesInMonth, type Basis, type Slice } from '../lib/basis';
+import { merchantNameMap } from '../lib/master';
 import type { QuadraDB } from '../lib/db';
 import { addMonths, longDate, monthLabel, todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
@@ -31,7 +32,7 @@ export function Movements({ db, master, nav, month, setMonth, macroId, categoryI
   const waiting = useLiveQuery(() => db.outbox.toArray(), [db]);
   const today = todayISO();
 
-  const merchantName = useMemo(() => new Map((merchants ?? []).map((m) => [m.id, m.name])), [merchants]);
+  const merchantName = useMemo(() => merchantNameMap(merchants ?? []), [merchants]);
   const waitingIds = useMemo(() => new Set((waiting ?? []).filter((o) => o.kind === 'tx').map((o) => o.id)), [waiting]);
   const macro = macroId ? master.macroById.get(macroId) : undefined;
   const category = categoryId ? master.categoryById.get(categoryId) : undefined;

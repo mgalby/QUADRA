@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { BottomBar } from '../components/BottomBar';
 import { SyncPill } from '../components/SyncPill';
+import { merchantNameMap } from '../lib/master';
 import type { QuadraDB } from '../lib/db';
 import { shortDate, todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
@@ -39,7 +40,7 @@ export function Recurrences({ db, master, nav, currency, pending }: {
     [db, today],
   );
   const merchants = useLiveQuery(() => db.merchants.toArray(), [db]);
-  const merchantName = useMemo(() => new Map((merchants ?? []).map((m) => [m.id, m.name])), [merchants]);
+  const merchantName = useMemo(() => merchantNameMap(merchants ?? []), [merchants]);
   const recName = useMemo(() => new Map((recs ?? []).map((r) => [r.id, r.name])), [recs]);
 
   const live = (recs ?? []).filter((r) => !r.deleted_at);

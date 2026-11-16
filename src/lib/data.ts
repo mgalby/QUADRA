@@ -4,6 +4,7 @@ import { convertCents, rateFromCharge } from './fx';
 import { fromCents } from './money';
 import { planToTx, sum, type Plan } from './plan';
 import { sortLines } from './split';
+import { mainMerchantId } from './master';
 import type { Category, Merchant, Transaction, TxKind, TxLine } from './types';
 
 // Operazioni sui dati locali. Ogni scrittura mette anche una voce nella coda
@@ -36,6 +37,13 @@ export async function findOrCreateMerchant(db: QuadraDB, name: string): Promise<
   await db.merchants.put(merchant);
   await db.outbox.put({ key: `merchant:${merchant.id}`, kind: 'merchant', id: merchant.id });
   return merchant.id;
+}
+
+/** Nome dell'esercizio di un movimento: un doppione unito mostra il nome del principale. */
+export async function merchantDisplayName(db: QuadraDB, id: string | null): Promise<string> {
+  if (!id) return '';
+  const all = new Map((await db.merchants.toArray()).map((m) => [m.id, m]));
+  return all.get(mainMerchantId(id, all))?.name ?? '';
 }
 
 export async function saveTransaction(db: QuadraDB, input: TxInput): Promise<Transaction> {
@@ -160,13 +168,16 @@ export async function merchantStats(db: QuadraDB): Promise<MerchantStats[]> {
   const [merchants, txs] = await Promise.all([db.merchants.toArray(), db.transactions.toArray()]);
   const since = addDays(todayISO(), -90);
   const byId = new Map<string, { uses: number; last: string; cats: Record<TxKind, Map<string, number>> }>();
+  const all = new Map(merchants.map((m) => [m.id, m]));
   for (const tx of txs) {
     if (tx.deleted_at || !tx.merchant_id) continue;
-    const s = byId.get(tx.merchant_id) ?? { uses: 0, last: '', cats: { expense: new Map(), income: new Map() } };
+    // i movimenti di un doppione unito contano per l'esercizio principale
+    const mid = mainMerchantId(tx.merchant_id, all);
+    const s = byId.get(mid) ?? { uses: 0, last: '', cats: { expense: new Map(), income: new Map() } };
     if (tx.tx_date >= since) s.uses++;
     if (tx.tx_date > s.last) s.last = tx.tx_date;
     for (const l of tx.lines) s.cats[tx.tx_kind].set(l.category_id, (s.cats[tx.tx_kind].get(l.category_id) ?? 0) + 1);
-    byId.set(tx.merchant_id, s);
+    byId.set(mid, s);
   }
   const top = (m?: Map<string, number>) => (m && m.size ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : null);
   return merchants

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { displayExpr, evaluate, exprFromCents, hasOperator, press, type CalcKey } from '../lib/calc';
-import { deleteTransaction, gridCategories, merchantStats, saveTransaction } from '../lib/data';
+import { deleteTransaction, gridCategories, merchantDisplayName, merchantStats, saveTransaction } from '../lib/data';
 import type { QuadraDB } from '../lib/db';
 import { addDays, shortDate, todayISO } from '../lib/dates';
 import { convertCents, getRate, rateFromCharge } from '../lib/fx';
@@ -72,11 +72,11 @@ export function Entry({ db, master, kind: initialKind, txId, adjust, currency, t
     void (async () => {
       const tx = await db.transactions.get(txId);
       if (tx) {
-        const m = tx.merchant_id ? await db.merchants.get(tx.merchant_id) : undefined;
+        const merchantName = await merchantDisplayName(db, tx.merchant_id);
         setOriginal(tx);
         setKind(tx.tx_kind);
         setExpr(exprFromCents(toCents(tx.total)));
-        setMerchant(m?.name ?? '');
+        setMerchant(merchantName);
         setDate(tx.tx_date);
         setNote(tx.note ?? '');
         setPlan(planFromTx(tx));

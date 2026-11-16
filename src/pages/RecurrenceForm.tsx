@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { evaluate, exprFromCents } from '../lib/calc';
+import { merchantDisplayName } from '../lib/data';
 import type { QuadraDB } from '../lib/db';
 import { todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
@@ -67,7 +68,7 @@ export function RecurrenceForm({ db, master, id, currency, onBack, onDone }: {
         setStart(r.start_date ?? today);
         setUntil(r.end_date ?? '');
         setCount(String(r.max_occurrences ?? 12));
-        if (r.merchant_id) setMerchant((await db.merchants.get(r.merchant_id))?.name ?? '');
+        setMerchant(await merchantDisplayName(db, r.merchant_id));
         const first = await db.installments.where('recurrence_id').equals(r.id).first();
         if (first) setMode(first.mode);
       }

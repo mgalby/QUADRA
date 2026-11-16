@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { BottomBar } from '../components/BottomBar';
+import { merchantNameMap } from '../lib/master';
 import type { QuadraDB } from '../lib/db';
 import { shortDate } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
@@ -12,7 +13,7 @@ export function FxPending({ db, master, nav, currency }: { db: QuadraDB; master:
   const { t, locale } = useI18n();
   const list = useLiveQuery(async () => (await db.transactions.toArray()).filter((x) => !x.deleted_at && x.fx_status === 'estimated').sort((a, b) => b.tx_date.localeCompare(a.tx_date)), [db]);
   const merchants = useLiveQuery(() => db.merchants.toArray(), [db]);
-  const merchantName = new Map((merchants ?? []).map((m) => [m.id, m.name]));
+  const merchantName = merchantNameMap(merchants ?? []);
   return (
     <main className="page with-bar">
       <header className="topbar">
