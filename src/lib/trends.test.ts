@@ -150,3 +150,20 @@ describe('cassa e competenza', () => {
     expect(s.months.map((p) => p.expense)).toEqual([0, 30000, 0]);
   });
 });
+
+describe('buildStats con mese in evidenza', () => {
+  it('categorie ed esercizi seguono il mese; le barrette restano su tutto il periodo', () => {
+    const txs = [
+      tx('expense', 'bar', 10, '2026-10-05', { merchant_id: 'm1' }),
+      tx('expense', 'spesa', 30, '2026-11-02', { merchant_id: 'm2' }),
+    ];
+    const all = buildStats(txs, cats, 'accrual', TODAY, 3);
+    const nov = buildStats(txs, cats, 'accrual', TODAY, 3, false, new Map(), '2026-11');
+    expect(all.categories.length).toBe(2);
+    expect(nov.categories.map((c) => c.key)).toEqual(['spesa']);
+    expect(nov.categories[0]).toMatchObject({ cents: 3000, share: 1 });
+    expect(nov.merchants.map((m) => m.key)).toEqual(['m2']);
+    expect(nov.shown).toBe(3000);
+    expect(nov.months).toEqual(all.months);
+  });
+});

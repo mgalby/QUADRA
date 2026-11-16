@@ -5,12 +5,12 @@ import { BasisToggle } from '../components/BasisToggle';
 import { SyncPill } from '../components/SyncPill';
 import type { Basis } from '../lib/basis';
 import type { QuadraDB } from '../lib/db';
-import { monthLabel, todayISO } from '../lib/dates';
+import { addMonths, monthLabel, monthOf, todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
 import { formatMoney } from '../lib/money';
 import type { Nav } from '../lib/nav';
-import { buildStats, closedAverage, discFocus } from '../lib/trends';
+import { buildStats, closedAverage, discFocus, type MonthPoint } from '../lib/trends';
 
 export const PERIODS = [3, 6, 12] as const;
 const OTHER_COLOR = '#8B93A0';
@@ -49,17 +49,21 @@ export function Stats({ db, master, nav, setMonth, period, setPeriod, onlyDisc, 
     () => new Map((merchants ?? []).flatMap((m) => (m.merged_into_id ? [[m.id, m.merged_into_id] as [string, string]] : []))),
     [merchants],
   );
+  // all'apertura il mese in evidenza è quello in corso; si tocca un'altra colonna per cambiarlo,
+  // la stessa colonna (o "Tutto il periodo") per vedere l'intero periodo
+  const current = monthOf(today);
+  const [picked, setPicked] = useState<string | 'all' | null>(null);
+  const wanted = picked === null ? current : picked;
+  // un mese scelto resta valido solo se cade ancora nel periodo (si può accorciare da 12 a 3 mesi)
+  const selected = wanted !== 'all' && wanted <= current && wanted >= addMonths(current, -(period - 1)) ? wanted : null;
   const stats = useMemo(
-    () => buildStats(txs ?? [], master.categoryById, basis, today, period, onlyDisc, mergedInto),
-    [txs, master.categoryById, basis, today, period, onlyDisc, mergedInto],
+    () => buildStats(txs ?? [], master.categoryById, basis, today, period, onlyDisc, mergedInto, selected),
+    [txs, master.categoryById, basis, today, period, onlyDisc, mergedInto, selected],
   );
-
-  // mese in evidenza: quello in corso, finché non se ne tocca un altro
-  const current = stats.months[stats.months.length - 1].month;
-  const [picked, setPicked] = useState<string | null>(null);
-  const selected = picked && stats.months.some((p) => p.month === picked) ? picked : current;
-  const point = stats.months.find((p) => p.month === selected)!;
-  const focus = discFocus(stats, selected)!;
+  const point: MonthPoint = selected
+    ? stats.months.find((p) => p.month === selected)!
+    : stats.months.reduce((a, p) => ({ ...a, income: a.income + p.income, essential: a.essential + p.essential, discretionary: a.discretionary + p.discretionary, expense: a.expense + p.expense }), { month: '', income: 0, essential: 0, discretionary: 0, expense: 0, partial: false });
+  const focus = selected ? discFocus(stats, selected)! : { month: '', discretionary: point.discretionary, expense: point.expense, share: point.expense > 0 ? point.discretionary / point.expense : null, average: null, delta: null, basedOn: -1 };
 
   const money = (cents: number) => formatMoney(cents, currency, locale);
   const round = (cents: number) =>
@@ -77,7 +81,7 @@ export function Stats({ db, master, nav, setMonth, period, setPeriod, onlyDisc, 
   const versus = focus.basedOn === 1 ? t('stats.vsPrev') : t('stats.vsAvg', { n: focus.basedOn });
 
   const openCategory = (categoryId: string) => {
-    setMonth(selected);
+    setMonth(selected ?? current);
     nav.tab({ name: 'movements', categoryId });
   };
   const topMerchant = stats.merchants[0]?.cents ?? 0;
@@ -109,6 +113,11 @@ export function Stats({ db, master, nav, setMonth, period, setPeriod, onlyDisc, 
           ))}
         </div>
       </div>
+      {selected && (
+        <button type="button" className="filter" onClick={() => setPicked('all')}>
+          <i className="ph ph-calendar-blank" aria-hidden="true" /> {t('stats.allPeriod')}
+        </button>
+      )}
       {onlyDisc && (
         <button type="button" className="filter" onClick={() => setOnlyDisc(false)}>
           <i className="ph-duotone ph-funnel" aria-hidden="true" /> {t('home.onlyDisc')} <i className="ph ph-x" aria-hidden="true" />
@@ -118,7 +127,7 @@ export function Stats({ db, master, nav, setMonth, period, setPeriod, onlyDisc, 
       <section className="card">
         <div className="row">
           <h2>{t('stats.trend')}</h2>
-          <span className="muted tiny">{monthLabel(selected, locale)}{point.partial ? ` · ${t('stats.partial')}` : ''}</span>
+          <span className="muted tiny">{selected ? `${monthLabel(selected, locale)}${point.partial ? ` · ${t('stats.partial')}` : ''}` : t('stats.wholePeriod', { n: period })}</span>
         </div>
 
         <div className="st-focus">
@@ -157,7 +166,7 @@ export function Stats({ db, master, nav, setMonth, period, setPeriod, onlyDisc, 
               className={`st-col${p.month === selected ? ' sel' : ''}${p.partial ? ' partial' : ''}`}
               aria-pressed={p.month === selected}
               aria-label={t('stats.monthAria', { month: monthLabel(p.month, locale), expense: money(p.expense), disc: money(p.discretionary), income: money(p.income) })}
-              onClick={() => setPicked(p.month)}
+              onClick={() => setPicked(p.month === selected ? 'all' : p.month)}
             >
               <span className="st-plot">
                 {p.discretionary > 0 && <span className={onlyDisc || p.essential === 0 ? 'st-seg st-d top' : 'st-seg st-d'} style={{ height: h(p.discretionary) }} />}
@@ -179,7 +188,7 @@ export function Stats({ db, master, nav, setMonth, period, setPeriod, onlyDisc, 
       <section className="card">
         <div className="row">
           <h2>{t('stats.categories')}</h2>
-          <span className="muted tiny num">{t('stats.periodTotal', { amount: money(stats.shown), n: period })}</span>
+          <span className="muted tiny num">{selected ? t('stats.monthTotal', { amount: money(stats.shown), month: monthLabel(selected, locale) }) : t('stats.periodTotal', { amount: money(stats.shown), n: period })}</span>
         </div>
         {stats.categories.length === 0 && <p className="muted small empty">{t('stats.empty')}</p>}
         {stats.categories.map((c) => {

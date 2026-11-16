@@ -44,6 +44,7 @@ const LOOKBACK = 3;
 /**
  * Statistiche del periodo di `n` mesi che termina con il mese di `today`.
  * Conta solo ciò che è già avvenuto: scadenze future e movimenti da confermare restano fuori.
+ * Con `focusMonth` categorie ed esercizi (totali, quote, classifica) riguardano solo quel mese; i punti mensili restano tutti.
  */
 export function buildStats(
   txs: Transaction[],
@@ -53,6 +54,7 @@ export function buildStats(
   n: number,
   onlyDiscretionary = false,
   mergedInto: Map<string, string> = new Map(),
+  focusMonth: string | null = null,
 ): Stats {
   const last = monthOf(today);
   const all = Array.from({ length: n + LOOKBACK }, (_, i) => addMonths(last, i - (n + LOOKBACK - 1)));
@@ -81,11 +83,13 @@ export function buildStats(
         if (disc) p.discretionary += cents; else p.essential += cents;
         if (i < first || (onlyDiscretionary && !disc)) continue;
 
-        shown += cents;
+        // le barrette mensili mostrano sempre tutto il periodo; totali ed esercizi seguono il mese in evidenza
         const c = cats.get(line.category_id) ?? { cents: 0, byMonth: new Array<number>(n).fill(0) };
-        c.cents += cents;
         c.byMonth[i - first] += cents;
         cats.set(line.category_id, c);
+        if (focusMonth !== null && month !== focusMonth) continue;
+        shown += cents;
+        c.cents += cents;
         const mid = tx.merchant_id ? mergedInto.get(tx.merchant_id) ?? tx.merchant_id : '';
         const m = merchants.get(mid) ?? { cents: 0, ids: new Set<string>() };
         m.cents += cents;

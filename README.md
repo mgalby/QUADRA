@@ -61,6 +61,8 @@ public/
 
 ## Stato
 
+v0.8.1 — Statistiche: categorie ed esercizi seguono il mese toccato nell'istogramma (all'apertura è il mese in corso); toccare di nuovo la colonna o "Tutto il periodo" mostra l'intero periodo; le barrette sotto le categorie restano su tutto il periodo.
+
 v0.8.0 — Statistiche, prima tranche (voce Statistiche nella barra in basso), sempre in euro e
 solo su ciò che è già avvenuto (scadenze future e da confermare escluse). Interruttori
 Competenza/Cassa, periodo 3/6/12 mesi (ricordato sul dispositivo) e "Solo discrezionali"

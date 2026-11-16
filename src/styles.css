@@ -384,8 +384,8 @@ input[type='date'] { width: 100%; min-width: 0; }
 .st-key.st-a { height: 0; width: 14px; border-top: 1.5px dashed var(--text); border-radius: 0; }
 
 .st-spark { display: flex; align-items: flex-end; gap: 2px; height: 20px; }
-.st-spark > span { flex: 1; max-width: 18px; height: 100%; display: flex; align-items: flex-end; opacity: 0.55; }
-.st-spark > span.sel { opacity: 1; }
+.st-spark > span { flex: 1; max-width: 18px; height: 100%; display: flex; align-items: flex-end; border-radius: 3px; }
+.st-spark > span.sel { background: #ffffff1f; }
 .st-spark > span > span { width: 100%; border-radius: 2px 2px 0 0; }
 div.macro-row { cursor: default; }
 
