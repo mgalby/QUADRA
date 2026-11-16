@@ -20,6 +20,7 @@ import { Login } from './pages/Login';
 import { Movements } from './pages/Movements';
 import { RecurrenceForm } from './pages/RecurrenceForm';
 import { Recurrences } from './pages/Recurrences';
+import { Import } from './pages/Import';
 import { FxPending } from './pages/FxPending';
 import { Settings } from './pages/Settings';
 import { activeTripId, currentTrip, loadTrips } from './lib/trips';
@@ -150,6 +151,7 @@ function Shell({ userId, email }: { userId: string; email: string }) {
       {s.name === 'entry' && (
         <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} adjust={s.adjust} currency={currency} trip={trip ? { name: trip.name, currency: trip.currency } : null} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
       )}
+      {s.name === 'import' && <Import db={db} master={master} nav={nav} currency={currency} onSync={sync} />}
       {s.name === 'fxpending' && <FxPending db={db} master={master} nav={nav} currency={currency} />}
       {s.name === 'recurrences' && <Recurrences db={db} master={master} nav={nav} currency={currency} pending={pending} />}
       {s.name === 'recurrence' && <RecurrenceForm key={s.id ?? 'new'} db={db} master={master} id={s.id} currency={currency} onBack={nav.back} onDone={onRecDone} />}

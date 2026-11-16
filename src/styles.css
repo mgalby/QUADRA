@@ -330,3 +330,12 @@ input[type='date'] { width: 100%; min-width: 0; }
 
 .amount .expr.fx-link { background: transparent; border: 0; padding: 0; min-height: 0; height: auto; font: inherit; font-size: 15px; color: var(--muted); text-align: right; }
 .amount .expr.fx-link u { color: var(--accent); text-underline-offset: 3px; }
+
+/* importazione CSV */
+.file-btn { position: relative; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; overflow: hidden; }
+.file-btn input[type='file'] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.imp-group { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.imp-group select { max-width: 52%; min-width: 0; }
+.imp-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; }
+.imp-row .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.imp-row input[type='checkbox'] { width: 20px; height: 20px; flex: none; }

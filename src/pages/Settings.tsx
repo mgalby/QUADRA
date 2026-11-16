@@ -8,6 +8,7 @@ import type { Nav } from '../lib/nav';
 import { useSyncState } from '../lib/sync';
 import { FX_COMMON, FX_CURRENCIES } from '../lib/fx';
 import { todayISO } from '../lib/dates';
+import { loadImports, undoImport } from '../lib/importer';
 import { activeTripId, loadTrips, newTrip, saveTrips, setActiveTrip } from '../lib/trips';
 
 /** Impostazioni, per ora ridotte a profilo, stato della sincronizzazione e uscita. */
@@ -48,6 +49,9 @@ export function Settings({ db, master, nav, userId, email, pending, onSync, view
     await saveTrips(db, trips.filter((x) => x.id !== id));
     if (tripOn === id) await setActiveTrip(db, null);
   }
+
+  const imports = useLiveQuery(() => loadImports(db), [db]) ?? [];
+  const [confirmUndo, setConfirmUndo] = useState<string | null>(null);
 
   const time = lastSync ? new Date(lastSync.value).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : '';
   const syncText =
@@ -133,6 +137,25 @@ export function Settings({ db, master, nav, userId, email, pending, onSync, view
             <button type="button" className="primary" disabled={!created} onClick={() => void addTrip()}>{t('trip.save')}</button>
           </div>
         )}
+      </section>
+
+      <section className="card">
+        <h2>{t('imp.title')}</h2>
+        <button type="button" className="ghost" onClick={() => nav.go({ name: 'import' })}>
+          <i className="ph ph-file-csv" aria-hidden="true" /> {t('imp.open')}
+        </button>
+        {imports.map((b) => (
+          <div key={b.key} className="row">
+            <span className="small">{new Date(b.at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })} · {t('imp.n', { n: b.ids.length })} · {b.file}</span>
+            <button type="button" className="ghost" onClick={() => {
+              if (confirmUndo !== b.key) { setConfirmUndo(b.key); return; }
+              setConfirmUndo(null);
+              void undoImport(db, b).then(onSync);
+            }}>
+              {confirmUndo === b.key ? t('imp.undo.confirm') : t('imp.undo')}
+            </button>
+          </div>
+        ))}
       </section>
 
       <section className="card">

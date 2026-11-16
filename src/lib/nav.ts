@@ -7,6 +7,7 @@ export type Screen =
   | { name: 'entry'; kind: TxKind; txId?: string; adjust?: boolean } // adjust: apre subito il foglio per la rettifica
   | { name: 'recurrences' }
   | { name: 'fxpending' }
+  | { name: 'import' }
   | { name: 'recurrence'; id?: string }
   | { name: 'settings' };
 

@@ -61,6 +61,13 @@ public/
 
 ## Stato
 
+v0.7.0 — Importa da CSV (Impostazioni → Importa): colonne Data, Importo, Segno (U/E),
+Categoria, Esercizio, Note, Competenza (AAAA-MM), Valuta, ImportoOriginale; solo Data e
+Importo sono obbligatorie. Separatore, codifica (UTF-8/Windows-1252), formati di importo e
+data riconosciuti da soli. Anteprima con categorie da assegnare, doppioni (stesso importo e
+segno entro 3 giorni, esclusi di default) ed errori; modello scaricabile; importazione
+annullabile in blocco da Impostazioni. Tutto in locale. Formato Monefy: da aggiungere.
+
 v0.6.2 — Data su PC: nella schermata di inserimento un clic sulla data apre subito il calendario (prima su desktop non succedeva nulla).
 
 v0.6.1 — Rettifica più visibile: aprendo un movimento in valuta, sotto l'importo
