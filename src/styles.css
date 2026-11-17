@@ -454,3 +454,6 @@ div.macro-row { cursor: default; }
 .imp-group { flex-direction: row; flex-wrap: wrap; }
 .imp-group .grow { flex-basis: 100%; }
 .imp-group select { flex: 1; max-width: none; }
+
+/* Backup: il pulsante «Ripristina da file» è una label (colonna di base): lo si porta in riga come gli altri ghost */
+.bk-file { font: inherit; flex-direction: row; justify-content: flex-start; min-height: 44px; padding: 0 8px; color: var(--accent); font-weight: 500; align-self: flex-start; }

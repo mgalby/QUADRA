@@ -63,6 +63,19 @@ public/
 
 ## Stato
 
+v0.9.1 — Backup e ripristino. Impostazioni → Backup e ripristino: «Scarica il backup» produce
+`quadra-backup-AAAA-MM-GG.json` con tutte le tabelle dell'utente (anche le righe cancellate
+logicamente, con righe, pagamenti e quote dei movimenti) più le preferenze del dispositivo
+(`pref:*`: viaggi, vista, periodo; `import:*`); mostra la data dell'ultimo backup e avvisa se
+sono passati più di 30 giorni. «Ripristina da file» legge il file, lo controlla (è di Quadra,
+non più nuovo dell'app, dello stesso utente, riferimenti completi) e mostra un'anteprima
+(nuove e diverse per tabella); dopo due tocchi le righe del file vincono su quelle del
+dispositivo (prendono l'ora di adesso e entrano nella coda di invio, quindi vincono anche sul
+server), mentre le righe che il file non conosce restano. Funziona anche su un dispositivo
+vuoto. Logica in `src/lib/backup.ts` (con test su fake-indexeddb), interfaccia in
+`src/components/BackupCard.tsx`. Nessuna modifica al database né a Dexie. Collaudo nel browser:
+`qa/v091.mjs`.
+
 v0.9.0 — Anagrafiche. Impostazioni → Categorie e macro: creare, rinominare, cambiare icona
 (ricerca in italiano o in inglese) e colore, tipo di spesa, spostare tra macro dello stesso tipo,
 riordinare con le frecce, fissare in una casella della griglia, archiviare, ripristinare, eliminare

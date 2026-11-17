@@ -11,6 +11,7 @@ import { FX_COMMON, FX_CURRENCIES } from '../lib/fx';
 import { todayISO } from '../lib/dates';
 import { buildExport } from '../lib/exporter';
 import { loadImports, undoImport } from '../lib/importer';
+import { BackupCard } from '../components/BackupCard';
 import { activeTripId, loadTrips, newTrip, saveTrips, setActiveTrip } from '../lib/trips';
 
 /** Impostazioni, per ora ridotte a profilo, stato della sincronizzazione e uscita. */
@@ -218,6 +219,8 @@ export function Settings({ db, master, nav, currency, userId, email, pending, on
         </button>
         {exported !== null && <p className="muted small" role="status">{t('exp.done', { rows: exported })}</p>}
       </section>
+
+      <BackupCard db={db} userId={userId} onSync={onSync} />
 
       <section className="card">
         <h2>{t('set.masterdata')}</h2>
