@@ -1,6 +1,7 @@
 # Tiene sveglio il progetto Supabase: il piano free lo sospende dopo circa 7 giorni
 # senza attività. Due richieste a settimana (lunedì e giovedì) leggono una riga dal
 # database; con le regole RLS non restituiscono dati, ma contano come attività.
+# La publishable key (sb_publishable_…) va solo nell'intestazione apikey: non è un JWT.
 # Servono due segreti del repository: SUPABASE_URL e SUPABASE_KEY (la publishable key).
 name: Ping Supabase
 
@@ -22,7 +23,7 @@ jobs:
             echo "Mancano i segreti SUPABASE_URL e SUPABASE_KEY"; exit 1
           fi
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
-            -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" \
+            -H "apikey: $SUPABASE_KEY" \
             "$SUPABASE_URL/rest/v1/profiles?select=id&limit=1")
           echo "Risposta: $code"
           [ "$code" = "200" ]
