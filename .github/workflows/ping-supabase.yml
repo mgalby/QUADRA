@@ -1,0 +1,28 @@
+# Tiene sveglio il progetto Supabase: il piano free lo sospende dopo circa 7 giorni
+# senza attività. Due richieste a settimana (lunedì e giovedì) leggono una riga dal
+# database; con le regole RLS non restituiscono dati, ma contano come attività.
+# Servono due segreti del repository: SUPABASE_URL e SUPABASE_KEY (la publishable key).
+name: Ping Supabase
+
+on:
+  schedule:
+    - cron: '17 6 * * 1,4'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Richiesta al database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "Mancano i segreti SUPABASE_URL e SUPABASE_KEY"; exit 1
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" \
+            "$SUPABASE_URL/rest/v1/profiles?select=id&limit=1")
+          echo "Risposta: $code"
+          [ "$code" = "200" ]
