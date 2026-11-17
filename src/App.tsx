@@ -28,6 +28,10 @@ import { CategoryForm } from './pages/CategoryForm';
 import { MacroForm } from './pages/MacroForm';
 import { Merchants } from './pages/Merchants';
 import { PERIODS, Stats } from './pages/Stats';
+import { Budget, defaultBudgetYear } from './pages/Budget';
+import { BudgetLineForm } from './pages/BudgetLineForm';
+import { BudgetMacro } from './pages/BudgetMacro';
+import { ReferenceBalances } from './pages/ReferenceBalances';
 import { activeTripId, currentTrip, loadTrips } from './lib/trips';
 
 export function App() {
@@ -80,6 +84,11 @@ function Shell({ userId, email }: { userId: string; email: string }) {
     setPeriodState(p);
     void db.meta.put({ key: 'pref:stats_months', value: String(p) });
   }, [db]);
+
+  // Budget: anno mostrato (da novembre si propone quello successivo)
+  const budgetYears = useLiveQuery(async () => (await db.budgets.toArray()).filter((b) => !b.deleted_at).map((b) => b.year), [db]);
+  const [budgetYearState, setBudgetYear] = useState<number | null>(null);
+  const budgetYear = budgetYearState ?? defaultBudgetYear(todayISO(), budgetYears ?? []);
 
   const profile = useLiveQuery(() => db.profile.get(userId), [db, userId]);
   const trips = useLiveQuery(() => loadTrips(db), [db]);
@@ -172,6 +181,12 @@ function Shell({ userId, email }: { userId: string; email: string }) {
       {s.name === 'stats' && (
         <Stats db={db} master={master} nav={nav} setMonth={setMonth} period={statsPeriod} setPeriod={setStatsPeriod} onlyDisc={onlyDisc} setOnlyDisc={setOnlyDisc} basis={basis} setBasis={setBasis} currency={currency} pending={pending} />
       )}
+      {s.name === 'budget' && (
+        <Budget db={db} master={master} nav={nav} userId={userId} year={budgetYear} setYear={setBudgetYear} currency={currency} pending={pending} onSync={sync} />
+      )}
+      {s.name === 'budgetLine' && <BudgetLineForm key={s.id} db={db} master={master} userId={userId} id={s.id} currency={currency} onBack={nav.back} onDone={onMasterDone} onSync={sync} />}
+      {s.name === 'budgetMacro' && <BudgetMacro db={db} master={master} nav={nav} year={s.year} macroId={s.macroId} currency={currency} />}
+      {s.name === 'refBalances' && <ReferenceBalances db={db} master={master} userId={userId} year={s.year} currency={currency} onBack={nav.back} onSync={sync} />}
       {s.name === 'entry' && (
         <Entry key={s.txId ?? 'new'} db={db} master={master} kind={s.kind} txId={s.txId} adjust={s.adjust} currency={currency} trip={trip ? { name: trip.name, currency: trip.currency } : null} onBack={nav.back} onSaved={onSaved} onDeleted={onDeleted} />
       )}

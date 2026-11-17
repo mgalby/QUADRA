@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { QuadraDB } from './db';
 import { supabase } from './supabase';
-import type { Category, Installment, Macro, Merchant, Profile, Recurrence, Transaction, TxLine } from './types';
+import type { Budget, BudgetLine, Category, Installment, Macro, Merchant, Profile, Recurrence, ReferenceBalance, Transaction, TxLine } from './types';
 import { accrualsOf, paymentsOf } from './basis';
 import { sortLines } from './split';
 
@@ -91,6 +91,43 @@ async function pushCategory(db: QuadraDB, id: string): Promise<void> {
   check(error);
 }
 
+// Budget: testata, righe e saldi di riferimento. amount_original delle righe è
+// calcolato dal database e non si invia.
+async function pushBudget(db: QuadraDB, id: string): Promise<void> {
+  const b = await db.budgets.get(id);
+  if (!b) return;
+  const { error } = await supabase.from('budgets').upsert({
+    id: b.id, year: b.year, status: b.status, approved_at: b.approved_at, reserve_original: b.reserve_original,
+    reserve_revised: b.reserve_revised, reserve_pct: b.reserve_pct, note: b.note,
+    client_modified_at: b.client_modified_at, deleted_at: b.deleted_at,
+  });
+  check(error);
+}
+
+async function pushBudgetLine(db: QuadraDB, id: string): Promise<void> {
+  const l = await db.budgetLines.get(id);
+  if (!l) return;
+  const { error } = await supabase.from('budget_lines').upsert({
+    id: l.id, budget_id: l.budget_id, category_id: l.category_id, macro_id: l.macro_id, source: l.source,
+    history_base: l.history_base, adjust_pct: l.adjust_pct, programmed_original: l.programmed_original,
+    integration_original: l.integration_original, programmed_revised: l.programmed_revised,
+    integration_revised: l.integration_revised, monthly_profile: l.monthly_profile, reviewed: l.reviewed, note: l.note,
+    client_modified_at: l.client_modified_at, deleted_at: l.deleted_at,
+  });
+  check(error);
+}
+
+async function pushRefBalance(db: QuadraDB, id: string): Promise<void> {
+  const r = await db.refBalances.get(id);
+  if (!r) return;
+  const { error } = await supabase.from('reference_balances').upsert({
+    id: r.id, year: r.year, month: r.month, category_id: r.category_id, macro_id: r.macro_id, amount: r.amount,
+    extraordinary: r.extraordinary, origin: r.origin, note: r.note,
+    client_modified_at: r.client_modified_at, deleted_at: r.deleted_at,
+  });
+  check(error);
+}
+
 async function pushRecurrence(db: QuadraDB, id: string): Promise<void> {
   const r = await db.recurrences.get(id);
   if (!r) return;
@@ -151,8 +188,9 @@ async function pushTransaction(db: QuadraDB, id: string): Promise<string | null>
 
 async function pushOutbox(db: QuadraDB): Promise<string | null> {
   const entries = await db.outbox.toArray();
-  // ognuno referenzia i precedenti: esercizi e macro, poi categorie, ricorrenze, infine i movimenti
-  const rank = { merchant: 0, macro: 0, cat: 1, rec: 2, tx: 3 } as const;
+  // ognuno referenzia i precedenti: esercizi e macro, poi categorie, ricorrenze e testate dei budget,
+  // infine movimenti e righe di budget
+  const rank = { merchant: 0, macro: 0, cat: 1, rec: 2, budget: 2, refbal: 2, tx: 3, bline: 3 } as const;
   entries.sort((a, b) => rank[a.kind] - rank[b.kind]);
   let firstError: string | null = null;
 
@@ -165,6 +203,17 @@ async function pushOutbox(db: QuadraDB): Promise<string | null> {
         else if (entry.kind === 'macro') await pushMacro(db, entry.id);
         else await pushCategory(db, entry.id);
         // se nel frattempo la riga è stata modificata di nuovo, resta in coda
+        await db.transaction('rw', [db.outbox, table], async () => {
+          const cur = await table.get(entry.id);
+          if (cur && cur.client_modified_at !== sent) return;
+          await db.outbox.delete(entry.key);
+        });
+      } else if (entry.kind === 'budget' || entry.kind === 'bline' || entry.kind === 'refbal') {
+        const table = entry.kind === 'budget' ? db.budgets : entry.kind === 'bline' ? db.budgetLines : db.refBalances;
+        const sent = (await table.get(entry.id))?.client_modified_at;
+        if (entry.kind === 'budget') await pushBudget(db, entry.id);
+        else if (entry.kind === 'bline') await pushBudgetLine(db, entry.id);
+        else await pushRefBalance(db, entry.id);
         await db.transaction('rw', [db.outbox, table], async () => {
           const cur = await table.get(entry.id);
           if (cur && cur.client_modified_at !== sent) return;
@@ -247,7 +296,7 @@ const PAGE = 500;
 /** Scarica le righe modificate dopo l'ultimo scarico, a pagine. */
 async function pullSince<T extends { id: string; updated_at: string }>(
   db: QuadraDB,
-  table: 'transactions' | 'merchants' | 'recurrences' | 'plan_installments',
+  table: 'transactions' | 'merchants' | 'recurrences' | 'plan_installments' | 'budgets' | 'budget_lines' | 'reference_balances',
   columns: string,
   store: (rows: T[]) => Promise<void>,
 ): Promise<void> {
@@ -360,6 +409,51 @@ async function pullInstallments(db: QuadraDB): Promise<void> {
   });
 }
 
+const num = (v: unknown): number => Number(v);
+const numOrNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+
+async function pullBudgets(db: QuadraDB): Promise<void> {
+  await pullSince<Budget>(db, 'budgets', '*', async (rows) => {
+    await db.transaction('rw', [db.budgets, db.outbox], async () => {
+      for (const r of rows) {
+        if (await db.outbox.get(`budget:${r.id}`)) continue; // modifica locale in attesa
+        await db.budgets.put({
+          id: r.id, user_id: r.user_id, year: r.year, status: r.status, approved_at: r.approved_at,
+          reserve_original: num(r.reserve_original), reserve_revised: numOrNull(r.reserve_revised), reserve_pct: numOrNull(r.reserve_pct),
+          note: r.note, updated_at: r.updated_at, client_modified_at: r.client_modified_at, deleted_at: r.deleted_at,
+        });
+      }
+    });
+  });
+  await pullSince<BudgetLine>(db, 'budget_lines', '*', async (rows) => {
+    await db.transaction('rw', [db.budgetLines, db.outbox], async () => {
+      for (const r of rows) {
+        if (await db.outbox.get(`bline:${r.id}`)) continue;
+        await db.budgetLines.put({
+          id: r.id, user_id: r.user_id, budget_id: r.budget_id, category_id: r.category_id, macro_id: r.macro_id,
+          source: r.source, history_base: numOrNull(r.history_base), adjust_pct: numOrNull(r.adjust_pct),
+          programmed_original: num(r.programmed_original), integration_original: num(r.integration_original),
+          programmed_revised: numOrNull(r.programmed_revised), integration_revised: numOrNull(r.integration_revised),
+          monthly_profile: r.monthly_profile ? r.monthly_profile.map(num) : null, reviewed: r.reviewed, note: r.note,
+          updated_at: r.updated_at, client_modified_at: r.client_modified_at, deleted_at: r.deleted_at,
+        });
+      }
+    });
+  });
+  await pullSince<ReferenceBalance>(db, 'reference_balances', '*', async (rows) => {
+    await db.transaction('rw', [db.refBalances, db.outbox], async () => {
+      for (const r of rows) {
+        if (await db.outbox.get(`refbal:${r.id}`)) continue;
+        await db.refBalances.put({
+          id: r.id, user_id: r.user_id, year: r.year, month: r.month, category_id: r.category_id, macro_id: r.macro_id,
+          amount: num(r.amount), extraordinary: r.extraordinary, origin: r.origin, note: r.note,
+          updated_at: r.updated_at, client_modified_at: r.client_modified_at, deleted_at: r.deleted_at,
+        });
+      }
+    });
+  });
+}
+
 // ----- punto d'ingresso ----------------------------------------------------
 
 let running: Promise<void> | null = null;
@@ -389,6 +483,7 @@ export function syncNow(db: QuadraDB, userId: string): Promise<void> {
         await pullRecurrences(db);
         await pullInstallments(db);
         await pullTransactions(db);
+        await pullBudgets(db);
         await db.meta.put({ key: 'last_sync', value: new Date().toISOString() });
         setState(pushError ? { status: 'error', msg: pushError } : { status: 'ok' });
       } catch (e) {

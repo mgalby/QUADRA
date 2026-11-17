@@ -139,10 +139,58 @@ export interface Installment {
   deleted_at: string | null;
 }
 
+// ----- Budget (v1.1, quadra_schema_v2.sql) ---------------------------------
+
+/** Testata del budget di un anno: stato e riserva per gli imprevisti. */
+export interface Budget extends SyncFields {
+  year: number;
+  status: 'draft' | 'approved';
+  approved_at: string | null;
+  reserve_original: number;
+  reserve_revised: number | null; // dalla 1.2
+  reserve_pct: number | null;     // attenuazione usata per proporre la riserva
+  note: string | null;
+}
+
+export type BudgetSource = 'history' | 'known' | 'manual';
+
+/**
+ * Riga di budget: con categoria (previsione se essenziale, tetto dedicato se
+ * discrezionale, entrata) oppure con macro (tetto comune). Budget = programmato
+ * (fotografia delle ricorrenze) + integrazione (scritta dall'utente).
+ */
+export interface BudgetLine extends SyncFields {
+  budget_id: string;
+  category_id: string | null;
+  macro_id: string | null;
+  source: BudgetSource;
+  history_base: number | null;
+  adjust_pct: number | null;
+  programmed_original: number;
+  integration_original: number;
+  programmed_revised: number | null;  // dalla 1.2
+  integration_revised: number | null; // dalla 1.2
+  monthly_profile: number[] | null;   // 12 pesi che sommano a 100; null = uniforme
+  reviewed: boolean;
+  note: string | null;
+}
+
+/** Saldo di riferimento (storico letto da Monefy). */
+export interface ReferenceBalance extends SyncFields {
+  year: number;
+  month: number | null; // null = tutto l'anno
+  category_id: string | null;
+  macro_id: string | null;
+  amount: number;
+  extraordinary: boolean;
+  origin: string;
+  note: string | null;
+}
+
 /** Coda di invio: cosa deve ancora arrivare al server. */
 export interface OutboxEntry {
-  key: string; // "tx:<id>", "merchant:<id>", "rec:<id>", "macro:<id>" oppure "cat:<id>"
-  kind: 'tx' | 'merchant' | 'rec' | 'macro' | 'cat';
+  key: string; // "tx:<id>", "merchant:<id>", "rec:<id>", "macro:<id>", "cat:<id>", "budget:<id>", "bline:<id>" oppure "refbal:<id>"
+  kind: 'tx' | 'merchant' | 'rec' | 'macro' | 'cat' | 'budget' | 'bline' | 'refbal';
   id: string;
   error?: string;
 }

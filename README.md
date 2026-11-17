@@ -63,6 +63,18 @@ public/
 
 ## Stato
 
+v1.1.0 — Budget, prima tranche (richiede `quadra_schema_v2.sql` sul database). Nuova voce
+**Budget** nella barra in basso. Storico di riferimento (saldi letti da Monefy per categoria o
+macro, anno o mese, con "straordinaria"); costruzione del budget dell'anno con le proposte: ogni
+riga = programmato (ricorrenze e piani rate dell'anno, calcolati) + integrazione (storico
+ritoccato meno programmato, importo noto o a mano); previsioni per le essenziali, tetto comune
+per la parte discrezionale di una macro, tetti dedicati facoltativi, profilo mensile sui tetti;
+bozza viva fino all'approvazione; lettura sempre in competenza con budget, consuntivo,
+impegnato, disponibile, Budget YTD, scostamento e "al mese". Logica pura in `src/lib/budget.ts`
+(con test), dati in `src/lib/budgetData.ts`, scrittura in `src/lib/budgetWrite.ts`, schermate
+`Budget`, `BudgetLineForm`, `BudgetMacro`, `ReferenceBalances`. Dexie versione 4; sincronizzazione
+e backup estesi alle tre tabelle. Collaudo nel browser: `qa/v110.mjs`.
+
 v0.9.1 — Backup e ripristino. Impostazioni → Backup e ripristino: «Scarica il backup» produce
 `quadra-backup-AAAA-MM-GG.json` con tutte le tabelle dell'utente (anche le righe cancellate
 logicamente, con righe, pagamenti e quote dei movimenti) più le preferenze del dispositivo

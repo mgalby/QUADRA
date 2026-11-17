@@ -14,6 +14,10 @@ export type Screen =
   | { name: 'category'; id?: string; macroId?: string } // senza id: categoria nuova nella macro indicata
   | { name: 'macro'; id?: string; kind?: TxKind }
   | { name: 'merchants' }
+  | { name: 'budget' }
+  | { name: 'budgetLine'; id: string }
+  | { name: 'budgetMacro'; year: number; macroId: string }
+  | { name: 'refBalances'; year: number }
   | { name: 'settings' };
 
 export interface Nav {

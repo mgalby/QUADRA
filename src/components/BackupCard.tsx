@@ -61,6 +61,7 @@ export function BackupCard({ db, userId, onSync }: { db: QuadraDB; userId: strin
     ['bk.t.cat', { added: p.categories.added + p.macros.added, changed: p.categories.changed + p.macros.changed, same: 0 }],
     ['bk.t.mer', p.merchants],
     ['bk.t.rec', { added: p.recurrences.added + p.installments.added, changed: p.recurrences.changed + p.installments.changed, same: 0 }],
+    ['bk.t.budget', p.budget],
   ] as const;
 
   return (

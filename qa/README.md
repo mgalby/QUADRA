@@ -10,6 +10,7 @@ npx vite preview --port 4173 &      # nello stesso comando del test
 node qa/v080.mjs [cartella-schermate]
 node qa/v090.mjs [cartella-schermate]
 node qa/v091.mjs [cartella-schermate]
+node qa/v110.mjs [cartella-schermate]
 ```
 
 `v090.mjs` prova le anagrafiche (categorie, macro, esercizi, "Crea" dall'importazione): il
@@ -20,6 +21,11 @@ rifiutare le scritture per provare la coda di invio. 60 controlli.
 anteprima, ripristino a due tocchi con invio al server). 16 controlli. Il server finto ignora
 il cursore degli scarichi incrementali: per questo il test non ricarica la pagina tra il
 danno e il ripristino.
+
+`v110.mjs` prova il Budget: storico di riferimento (saldi, doppioni, totale di controllo,
+straordinaria), costruzione del 2027 con le proposte, importo noto, tetto dedicato e bozza viva,
+profilo mensile, approvazione e riapertura a due tocchi, lettura, dettaglio della macro, backup
+con le tabelle del budget. 31 controlli.
 
 Nota: in `v080.mjs` il controllo "Coop compare solo per la quota Tech" fallisce dalla v0.8.1,
 perché le liste delle Statistiche seguono il mese in evidenza (agosto, in quel punto del test).
