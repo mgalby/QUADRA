@@ -22,8 +22,9 @@ jobs:
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
             echo "Mancano i segreti SUPABASE_URL e SUPABASE_KEY"; exit 1
           fi
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+          code=$(curl -sS -o body.txt -w '%{http_code}' --max-time 30 \
             -H "apikey: $SUPABASE_KEY" \
             "$SUPABASE_URL/rest/v1/profiles?select=id&limit=1")
           echo "Risposta: $code"
+          head -c 300 body.txt; echo
           [ "$code" = "200" ]
