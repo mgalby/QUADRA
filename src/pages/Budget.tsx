@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { BottomBar } from '../components/BottomBar';
 import { SyncPill } from '../components/SyncPill';
 import {
-  byMacro, extraordinaryOf, lineBudget, proposeLines, readBudget, type LineReading, type MacroReading,
+  byMacro, extraordinaryOf, lineBudget, monthIndex, proposeLines, readBudget, type LineReading, type MacroReading,
 } from '../lib/budget';
 import { useBudgetData } from '../lib/budgetData';
 import { writeBudget } from '../lib/budgetWrite';
@@ -37,6 +37,10 @@ export function Budget({ db, master, nav, userId, year, setYear, currency, pendi
   const today = todayISO();
   const data = useBudgetData(db, year, today, master.categoryById, onSync);
   const [confirm, setConfirm] = useState<'approve' | 'reopen' | null>(null);
+  const [view, setView] = useState<'year' | 'month'>('year');
+  const nowMonth = monthIndex(year, today);
+  const [pickedMonth, setPickedMonth] = useState<number | null>(null);
+  const month = pickedMonth ?? Math.min(12, Math.max(1, nowMonth));
   const money = (cents: number) =>
     new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0, useGrouping: 'always' }).format(cents / 100);
   const signed = (cents: number) => (cents > 0 ? `+${money(cents)}` : cents < 0 ? `−${money(-cents)}` : money(0));
@@ -225,6 +229,13 @@ export function Budget({ db, master, nav, userId, year, setYear, currency, pendi
       {header}
       <SyncPill pending={pending} onClick={() => nav.go({ name: 'settings' })} />
       <p className="muted small">{t('bu.approvedOn', { date: new Date(data.budget.approved_at!).toLocaleDateString(locale, { dateStyle: 'medium' }) })}</p>
+      <div className="segmented basis" role="group" aria-label={t('bu.view')}>
+        <button type="button" aria-pressed={view === 'year'} onClick={() => setView('year')}>{t('bu.view.year')}</button>
+        <button type="button" aria-pressed={view === 'month'} onClick={() => setView('month')}>{t('bu.view.month')}</button>
+      </div>
+      {view === 'month' ? (
+        <MonthView groups={groups} month={month} nowMonth={nowMonth} setMonth={setPickedMonth} money={money} catName={(id) => master.categoryById.get(id)?.name ?? '?'} locale={locale} year={year} />
+      ) : (<>
       <section className="card">
         <div className="row"><span className="small muted">{t('bu.result')}</span><span className={`num ${r.result >= 0 ? 'pos' : 'neg'}`}>{signed(r.result)}</span></div>
         {incomes.length > 1 && r.primaryIncome && (
@@ -251,6 +262,7 @@ export function Budget({ db, master, nav, userId, year, setYear, currency, pendi
         {r.outOfBudget > 0 && <div className="row bu-sep"><span className="small">{t('bu.outOfBudget')}</span><span className="num small bu-warn">{money(r.outOfBudget)}</span></div>}
       </section>
 
+      </>)}
       {storico}
       <button type="button" className="secondary" onClick={() => void setStatus('draft')}>
         {confirm === 'reopen' ? t('bu.reopen.confirm') : t('bu.reopen')}
@@ -293,8 +305,8 @@ export function UseBar({ budget, actual, committed, color, over }: { budget: num
   );
 }
 
-/** Riga di sintesi di un tetto: budget YTD, scostamento, quanto spendere nel mese. */
-export function CapFacts({ lr, money }: { lr: LineReading; money: (c: number) => string }) {
+/** Riga di sintesi: budget YTD e scostamento; per i tetti anche il disponibile del mese (senza riporti). */
+export function LineFacts({ lr, money }: { lr: LineReading; money: (c: number) => string }) {
   const { t } = useI18n();
   if (lr.ytdBudget === null) return null;
   const d = lr.ytdDelta ?? 0;
@@ -302,11 +314,87 @@ export function CapFacts({ lr, money }: { lr: LineReading; money: (c: number) =>
     <>
       <div className="row bu-fact">
         <span className="muted tiny">{t('bu.ytd', { budget: money(lr.ytdBudget), actual: money(lr.actual) })}</span>
-        <span className={`tiny num ${d > 0 ? 'bu-warn' : 'pos'}`}>{d > 0 ? t('bu.ytdOver', { v: money(d) }) : d < 0 ? t('bu.ytdUnder', { v: money(-d) }) : t('bu.ytdOn')}</span>
+        <span className={`tiny num ${d > 0 ? 'bu-red' : 'pos'}`}>{d > 0 ? t('bu.ytdOver', { v: money(d) }) : d < 0 ? t('bu.ytdUnder', { v: money(-d) }) : t('bu.ytdOn')}</span>
       </div>
-      {lr.perMonth !== null && (
-        <div className="row bu-fact"><span className="muted tiny">{t('bu.perMonth')}</span><span className="tiny num">{money(lr.perMonth)}</span></div>
+      {lr.monthAvailable !== null && (
+        <div className="row bu-fact"><span className="muted tiny">{t('bu.monthAvail')}</span><span className={`tiny num ${lr.monthAvailable < 0 ? 'bu-red' : ''}`}>{money(lr.monthAvailable)}</span></div>
       )}
+    </>
+  );
+}
+
+/** 12 caselle: verde = risparmio del mese, rosso = sforamento; il mese in corso e i futuri senza giudizio. */
+export function MonthStrip({ lr, nowMonth, money, locale }: { lr: LineReading; nowMonth: number; money: (c: number) => string; locale: string }) {
+  return (
+    <div className="bu-strip" role="list">
+      {lr.months.map((c, i) => {
+        const closed = i + 1 < nowMonth;
+        const diff = c.budget - c.actual;
+        const cls = closed ? (diff >= 0 ? 'ok' : 'ko') : i + 1 === nowMonth ? 'now' : '';
+        const name = new Date(2027, i, 1).toLocaleDateString(locale, { month: 'short' }).replace('.', '');
+        return (
+          <span key={i} role="listitem" className={`bu-cell ${cls}`} title={`${name}: ${money(c.budget)} / ${money(c.actual)}`}>
+            <span className="tiny">{name.slice(0, 1).toUpperCase()}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Vista Mese: tetti del mese, senza riporti; verde il risparmio, rosso lo sforamento. */
+function MonthView({ groups, month, nowMonth, setMonth, money, catName, locale, year }: {
+  groups: MacroReading[]; month: number; nowMonth: number; setMonth: (m: number) => void; money: (c: number) => string;
+  catName: (id: string) => string; locale: string; year: number;
+}) {
+  const { t } = useI18n();
+  const label = new Date(year, month - 1, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+  const state = month < nowMonth ? 'closed' : month === nowMonth ? 'current' : 'future';
+  const caps = groups.flatMap((g) => g.caps.map((lr) => ({ g, lr })));
+  const tot = caps.reduce((a, { lr }) => {
+    const c = lr.months[month - 1];
+    return { budget: a.budget + c.budget, actual: a.actual + c.actual, committed: a.committed + c.committed };
+  }, { budget: 0, actual: 0, committed: 0 });
+  const verdict = (b: number, act: number, com: number) => {
+    if (state === 'closed') {
+      const d = b - act;
+      return <span className={`num small strong ${d >= 0 ? 'pos' : 'bu-red'}`}>{d >= 0 ? t('bu.m.saved', { v: money(d) }) : t('bu.m.over', { v: money(-d) })}</span>;
+    }
+    if (state === 'current') {
+      const d = b - act - com;
+      return <span className={`num small strong ${d >= 0 ? '' : 'bu-red'}`}>{t('bu.m.left', { v: money(d) })}</span>;
+    }
+    return <span className="num small muted">{com > 0 ? t('bu.m.committed', { v: money(com) }) : ''}</span>;
+  };
+  return (
+    <>
+      <div className="month">
+        <button type="button" className="icon-btn" aria-label={t('home.prev')} disabled={month <= 1} onClick={() => setMonth(month - 1)}><i className="ph ph-caret-left" aria-hidden="true" /></button>
+        <h1 className="bu-mlabel">{label}</h1>
+        <button type="button" className="icon-btn" aria-label={t('home.next')} disabled={month >= 12} onClick={() => setMonth(month + 1)}><i className="ph ph-caret-right" aria-hidden="true" /></button>
+      </div>
+      <section className="card">
+        <div className="row"><span className="strong">{t('bu.m.caps')}</span>{verdict(tot.budget, tot.actual, tot.committed)}</div>
+        <div className="row"><span className="muted small">{t('bu.m.capSpent', { cap: money(tot.budget), spent: money(tot.actual) })}</span></div>
+      </section>
+      {groups.filter((g) => g.caps.length > 0).map((g) => (
+        <section key={g.macro.id} className="card bu-macro">
+          <div className="row bu-macro-head"><span className="bu-macro-name"><span className="bu-dot" style={{ background: g.macro.color }} />{g.macro.name}</span></div>
+          {g.caps.map((lr) => {
+            const c = lr.months[month - 1];
+            return (
+              <div key={lr.line.id} className="bu-mrow">
+                <span className="bu-line-main">
+                  <span className="small">{lr.nature === 'common' ? t('bu.commonCap') : catName(lr.line.category_id!)}</span>
+                  <span className="muted tiny num">{t('bu.m.capSpent', { cap: money(c.budget), spent: money(c.actual) })}</span>
+                </span>
+                {verdict(c.budget, c.actual, c.committed)}
+              </div>
+            );
+          })}
+        </section>
+      ))}
+      <p className="muted tiny">{t('bu.m.hint')}</p>
     </>
   );
 }
@@ -330,7 +418,8 @@ function MacroCard({ g, money, onOpen }: { g: MacroReading; money: (c: number) =
           <span className="row bu-fact"><span className="muted tiny">{t('bu.part.cap')}</span><span className="tiny num">{t('bu.partNums', { budget: money(sum(g.caps, 'budget')), avail: money(sum(g.caps, 'available')) })}</span></span>
         </>
       )}
-      {singleCap && !mixed && <CapFacts lr={singleCap} money={money} />}
+      {singleCap && !mixed && <LineFacts lr={singleCap} money={money} />}
+      {!mixed && g.caps.length === 0 && g.forecast.length === 1 && <LineFacts lr={g.forecast[0]} money={money} />}
       {g.overCap && g.overCap.nature === 'dedicated' && (
         <span className="bu-alert tiny"><i className="ph ph-warning" aria-hidden="true" /> {t('bu.overDedicated')}</span>
       )}

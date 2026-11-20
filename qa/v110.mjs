@@ -188,27 +188,38 @@ await page.waitForTimeout(300);
 const fotoProp = serverLine((l) => l.category_id === 'c-foto');
 ok('Fotografia dedicata: proposta dallo storico 1.105,90 (bozza viva)', fotoProp.source === 'history' && Number(fotoProp.integration_original) === 1105.9, JSON.stringify([fotoProp.source, fotoProp.integration_original]));
 
-// ----- Tempo libero: profilo mensile ----------------------------------------
+// ----- Tempo libero: curva trimestrale ------------------------------------
 await lineOf('Tetto comune').first().click();
-await page.waitForSelector('h2:has-text("Profilo mensile")');
-await page.locator('.bu-month').nth(7).click();
-await page.locator('label:has-text("Peso di agosto") input').fill('30');
-await page.click('button:has-text("Applica")');
-await page.locator('.bu-month').nth(11).click();
-await page.locator('label:has-text("Peso di dicembre") input').fill('15');
-await page.click('button:has-text("Applica")');
-const labels = await page.locator('.bu-month .num').allInnerTexts();
-ok('profilo: agosto 30, dicembre 15, gli altri 5,5', labels[7] === '30%' && labels[11] === '15%' && labels[0] === '5,5%', labels.join(' '));
+await page.waitForSelector('h2:has-text("Ripartizione sui mesi")');
+await page.click('.segmented button:has-text("Trimestrale")');
+const qs = page.locator('.bu-quarters input');
+for (const [i, v] of ['20', '25', '35', '20'].entries()) await qs.nth(i).fill(v);
 await page.locator('label:has-text("Ritocco") input').fill('-5');
-await page.screenshot({ path: `${out}/u5-tetto-profilo.png`, fullPage: true });
+const bars = await page.locator('.bu-profile .num').allInnerTexts();
+ok('anteprima: 108 al mese in T1 (20% di 1.615 / 3), 188 in T3', bars[0] === '108' && bars[6] === '188', bars.join(' '));
+await page.screenshot({ path: `${out}/u5-tetto-trimestrale.png`, fullPage: true });
 ok('scheda tetto: nessuno scorrimento orizzontale', await noOverflow());
 await page.click('.topbar button:has-text("Conferma")');
 await page.waitForSelector('.toast');
 await settle();
 const svago = serverLine((l) => l.macro_id === 'm-svago');
-const sum = (svago.monthly_profile ?? []).reduce((s, x) => s + Number(x), 0);
-ok('Tempo libero: profilo salvato (somma 100), ritocco −5%, integrazione 1.615', svago.monthly_profile?.length === 12 && Math.round(sum * 100) === 10000 && Number(svago.adjust_pct) === -5 && Number(svago.integration_original) === 1615,
-  JSON.stringify([sum, svago.adjust_pct, svago.integration_original]));
+ok('Tempo libero: trimestrale [20,25,35,20], ritocco −5%, integrazione 1.615', svago.distribution === 'quarterly' && svago.distribution_values.join() === '20,25,35,20' && Number(svago.adjust_pct) === -5 && Number(svago.integration_original) === 1615,
+  JSON.stringify([svago.distribution, svago.distribution_values, svago.adjust_pct, svago.integration_original]));
+
+// ----- Fotografia: curva manuale in euro --------------------------------------
+await lineOf('Fotografia').click();
+await page.waitForSelector('h2:has-text("Ripartizione sui mesi")');
+await page.click('.segmented button:has-text("Manuale")');
+const ms = page.locator('.bu-manual input');
+for (let i = 0; i < 12; i++) await ms.nth(i).fill(i === 2 ? '400' : i === 9 ? '600' : '0');
+ok('manuale: l\'integrazione diventa la somma dei mesi (1.000)', /1\.000/.test(await page.locator('.card', { hasText: 'Tetto' }).filter({ hasText: 'integrazione' }).first().innerText()));
+await page.screenshot({ path: `${out}/u5b-foto-manuale.png`, fullPage: true });
+await page.click('.topbar button:has-text("Conferma")');
+await page.waitForSelector('.toast');
+await settle();
+const foto2 = serverLine((l) => l.category_id === 'c-foto');
+ok('Fotografia: manuale, 12 importi, integrazione 1.000, fonte a mano', foto2.distribution === 'manual' && foto2.distribution_values.length === 12 && Number(foto2.distribution_values[2]) === 400 && Number(foto2.integration_original) === 1000 && foto2.source === 'manual',
+  JSON.stringify([foto2.distribution, foto2.distribution_values, foto2.integration_original, foto2.source]));
 
 // ----- approvazione ------------------------------------------------------------
 await page.click('button:has-text("Approva budget")');
@@ -228,7 +239,19 @@ await page.waitForSelector('h3:has-text("Tetti")');
 await page.screenshot({ path: `${out}/u7-dettaglio-passioni.png`, fullPage: true });
 const det = await page.locator('main').innerText();
 ok('dettaglio Passioni: tetto dedicato Fotografia e tetto comune (YTD nascosto prima dell\'inizio dell\'anno)', /Fotografia/.test(det) && /Tetto comune/.test(det) && !/YTD/.test(det));
+ok('dettaglio: striscia dei 12 mesi per ogni tetto', (await page.locator('.bu-strip').count()) === 2 && /Ripartizione manuale/.test(det));
 await page.click('.topbar button:has-text("Indietro")');
+
+// vista Mese: tetti del mese, senza riporti
+await page.click('.segmented button:has-text("Mese")');
+await page.waitForSelector('h1.bu-mlabel');
+await page.click('button[aria-label="Mese successivo"]');
+await page.click('button[aria-label="Mese successivo"]');
+const marzo = await page.locator('main').innerText();
+ok('vista Mese: marzo 2027, Fotografia con tetto 400 (curva manuale)', /marzo 2027/i.test(marzo) && /tetto 400\s€/.test(marzo), marzo.slice(0, 200).replace(/\n/g, ' | '));
+await page.screenshot({ path: `${out}/u6b-mese.png`, fullPage: true });
+ok('vista Mese: nessuno scorrimento orizzontale', await noOverflow());
+await page.click('.segmented button:has-text("Anno")');
 
 // riaprire con due tocchi
 await page.click('button:has-text("Riapri il budget")');

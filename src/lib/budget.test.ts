@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  actualsOf, byMacro, guideShares, historyOfLine, membersOf, monthIndex, natureOf, profileFromMonths, programmedItems,
-  proposeIntegration, proposeLines, readBudget, readLine, refreshDraft, setMonthWeight, sumByCategory, uniformProfile,
+  actualsOf, byMacro, guideShares, historyOfLine, integrationMonths, membersOf, monthIndex, natureOf, programmedItems,
+  proposeIntegration, proposeLines, readBudget, readLine, refreshDraft, scaleTo, spread, sumByCategory,
 } from './budget';
 import type { Budget, BudgetLine, Category, Installment, Macro, Recurrence, ReferenceBalance, Transaction } from './types';
 
@@ -42,42 +42,35 @@ const line = (extra: Partial<BudgetLine>): BudgetLine => ({
 });
 const budget: Budget = { id: 'b', year: 2027, status: 'draft', approved_at: null, reserve_original: 1500, reserve_revised: null, reserve_pct: 50, note: null, ...sync };
 
-describe('profilo mensile', () => {
-  it('uniforme: 12 pesi che sommano esattamente a 100', () => {
-    const p = uniformProfile();
-    expect(p).toHaveLength(12);
-    expect(p.slice(0, 11).every((x) => x === 8.33)).toBe(true);
-    expect(Math.round(p.reduce((s, x) => s + x, 0) * 100)).toBe(10000);
+describe('ripartizione sui mesi', () => {
+  const sum = (xs: number[]) => xs.reduce((t, x) => t + x, 0);
+
+  it('flat: 1/12 al mese, l\'ultimo mese prende i centesimi', () => {
+    const m = integrationMonths({ integration_original: 1000, distribution: 'flat', distribution_values: null });
+    expect(m.slice(0, 11).every((x) => x === 8333)).toBe(true);
+    expect(sum(m)).toBe(100000);
+    expect(spread(100, 3)).toEqual([33, 33, 34]);
   });
 
-  it('ritocco: agosto 30, poi dicembre 15, gli altri si dividono il resto (5,5)', () => {
-    const locked = Array(12).fill(false);
-    let p = setMonthWeight(uniformProfile(), locked, 7, 30);
-    locked[7] = true;
-    p = setMonthWeight(p, locked, 11, 15);
-    expect(p[7]).toBe(30);
-    expect(p[11]).toBe(15);
-    expect(p.filter((_, i) => i !== 7 && i !== 11).every((x) => x === 5.5)).toBe(true);
-    expect(Math.round(p.reduce((s, x) => s + x, 0) * 100)).toBe(10000);
+  it('una riga senza curva (scaricata prima della 1.1.1) vale flat', () => {
+    expect(integrationMonths({ integration_original: 120, distribution: undefined })).toEqual(Array(12).fill(1000));
   });
 
-  it('il valore non supera ciò che lasciano i mesi bloccati', () => {
-    const locked = Array(12).fill(false);
-    locked[0] = true;
-    const start = setMonthWeight(uniformProfile(), Array(12).fill(false), 0, 60);
-    const p = setMonthWeight(start, locked, 1, 80);
-    expect(p[0]).toBe(60);
-    expect(p[1]).toBe(40);
-    expect(p.slice(2).every((x) => x === 0)).toBe(true);
+  it('trimestrale: ogni trimestre diviso in parti uguali sui suoi 3 mesi', () => {
+    const m = integrationMonths({ integration_original: 1200, distribution: 'quarterly', distribution_values: [20, 25, 35, 20] });
+    expect(m.slice(0, 3)).toEqual([8000, 8000, 8000]);
+    expect(m.slice(6, 9)).toEqual([14000, 14000, 14000]);
+    expect(sum(m)).toBe(120000);
   });
 
-  it('dallo storico mensile, con la somma a 100', () => {
-    const months = [110, 110, 110, 110, 110, 110, 110, 600, 110, 110, 110, 300].map((x) => x * 100);
-    const p = profileFromMonths(months)!;
-    expect(p[7]).toBe(30);
-    expect(p[11]).toBe(15);
-    expect(Math.round(p.reduce((s, x) => s + x, 0) * 100)).toBe(10000);
-    expect(profileFromMonths(Array(12).fill(0))).toBeNull();
+  it('manuale: gli importi del mese', () => {
+    const vals = [0, 0, 400, 0, 0, 0, 0, 0, 0, 600, 0, 0];
+    expect(integrationMonths({ integration_original: 1000, distribution: 'manual', distribution_values: vals })).toEqual(vals.map((x) => x * 100));
+  });
+
+  it('il programmato si riporta al valore congelato mantenendo i mesi', () => {
+    expect(scaleTo([0, 1000, 0, 1000, 0, 0, 0, 0, 0, 0, 0, 0], 2200)).toEqual([0, 1100, 0, 1100, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(sum(scaleTo([0, 0, 0], 300))).toBe(300);
   });
 });
 
@@ -94,6 +87,9 @@ describe('programmato', () => {
     // come per la generazione delle scadenze, la stima è l'ultimo importo confermato
     expect(items[0].cents).toBe(3100 + 10 * 3100);
     expect(items[0].pending).toBe(10 * 3100);
+    expect(items[0].months[0]).toBe(3100);   // gennaio: generata
+    expect(items[0].months[1]).toBe(0);      // febbraio: cancellata
+    expect(items[0].pendingMonths[2]).toBe(3100);
   });
 
   it('variabile: l\'ultimo importo confermato; in valuta: al cambio noto', () => {
@@ -134,11 +130,18 @@ describe('consuntivo e impegnato', () => {
       tx('foto', 999, '2026-12-30'),                                 // altro anno
       tx('foto', 70, '2027-03-01', { deleted_at: 'x' }),
     ];
-    const items = [{ recurrenceId: 'x', name: 'x', categoryId: 'tech', cents: 5000, count: 2, pending: 2000 }];
+    const months = Array(12).fill(0); months[0] = 3000; months[9] = 2000;
+    const pendingMonths = Array(12).fill(0); pendingMonths[9] = 2000;
+    const items = [{ recurrenceId: 'x', name: 'x', categoryId: 'tech', cents: 5000, count: 2, pending: 2000, months, pendingMonths }];
     const a = actualsOf(txs, 2027, '2027-06-30', items);
     expect(a.actual.get('foto')).toBe(10000 + 60000);
     expect(a.committed.get('foto')).toBe(5000 + 4000 + 60000);
     expect(a.committed.get('tech')).toBe(2000);
+    expect(a.actualM!.get('foto')![1]).toBe(60000);          // febbraio
+    expect(a.actualM!.get('foto')![2]).toBe(10000);          // marzo
+    expect(a.committedM!.get('foto')![7]).toBe(60000);       // agosto: quota futura
+    expect(a.committedM!.get('tech')![9]).toBe(2000);
+    expect(a.programmedM!.get('tech')![0]).toBe(3000);
   });
 });
 
@@ -211,42 +214,71 @@ describe('costruzione e bozza viva', () => {
     expect(byCat.get('auto')).toMatchObject({ programmed_original: 1100, integration_original: 600 });
     expect(byCat.get('bollette')).toMatchObject({ history_base: 2300, integration_original: 150 });
     expect(byCat.get('condominio')).toMatchObject({ source: 'history', history_base: 2350, integration_original: 2350 });
+    // curva manuale: l'integrazione resta la somma dei mesi anche se la voce non è rivista
+    const man = line({ category_id: 'bollette', source: 'manual', integration_original: 100, distribution: 'manual', distribution_values: [100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    expect(refreshDraft([man], catMap, newRefs, newProg, 2027)[0]).toMatchObject({ integration_original: 100, programmed_original: 2150 });
     // nulla cambia: nessuna riga da riscrivere
     expect(refreshDraft(out.map((l) => ({ ...l })), catMap, newRefs, newProg, 2027)).toHaveLength(0);
   });
 });
 
 describe('lettura', () => {
-  const profile = [5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 5.5, 30, 5.5, 5.5, 5.5, 15];
-  const common = line({ macro_id: 'pass', programmed_original: 120, integration_original: 780, monthly_profile: profile });
+  const q = [20, 25, 35, 20];
+  const common = line({ macro_id: 'pass', programmed_original: 120, integration_original: 780, distribution: 'quarterly', distribution_values: q });
   const foto = line({ category_id: 'foto', integration_original: 1200 });
   const auto = line({ category_id: 'auto', programmed_original: 1050, integration_original: 722 });
   const stip = line({ category_id: 'stipendio', integration_original: 37200 });
   const rimb = line({ category_id: 'rimborsi', integration_original: 800 });
   const lines = [common, foto, auto, stip, rimb];
+  const m12 = (pairs: [number, number][]) => { const a = Array(12).fill(0); pairs.forEach(([i, v]) => (a[i] = v)); return a; };
   const a = {
     actual: new Map([['foto', 131000], ['tech', 26000], ['auto', 179000], ['stipendio', 1860000], ['usato', 32000], ['regali', 5000]]),
-    committed: new Map([['auto', 27000], ['tech', 0]]),
+    committed: new Map([['auto', 27000], ['tech', 3000]]),
+    actualM: new Map([['tech', m12([[0, 2000], [1, 9000], [5, 15000]])], ['foto', m12([[2, 131000]])], ['auto', m12([[2, 179000]])]]),
+    committedM: new Map([['tech', m12([[5, 3000]])], ['auto', m12([[8, 27000]])]]),
+    programmedM: new Map([['stadio', m12([[0, 1000], [6, 1000]])], ['auto', m12([[2, 78000], [5, 27000]])]]),
   };
 
   it('mese dell\'anno del budget', () => {
     expect(monthIndex(2027, '2026-12-20')).toBe(0);
     expect(monthIndex(2027, '2027-06-30')).toBe(6);
+    expect(monthIndex(2028, '2027-06-30')).toBe(0);
     expect(monthIndex(2027, '2028-01-02')).toBe(13);
   });
 
-  it('tetto con profilo: budget YTD, scostamento e quanto spendere nel mese', () => {
+  it('tetto mese per mese: programmato nei mesi reali (riportato a 120) + integrazione trimestrale', () => {
     const r = readLine(common, lines, catMap, macroMap, a, 6);
-    expect(r.budget).toBe(90000);
-    expect(r.ytdBudget).toBe(Math.round(90000 * 0.33));
-    expect(r.ytdDelta).toBe(26000 - 29700);
-    expect(r.available).toBe(64000);
-    expect(r.perMonth).toBe(Math.round((64000 * 550) / 7250)); // giugno pesa 5,5 sui 72,5 punti da giugno a dicembre
-    expect(readLine(common, lines, catMap, macroMap, a, 7).perMonth).toBe(Math.round((64000 * 550) / 6700));
+    expect(r.members.sort()).toEqual(['stadio', 'tech']);
+    // T1 = 20% di 780 = 156 → 52 al mese; programmato 60 a gennaio e 60 a luglio
+    expect(r.months[0].budget).toBe(5200 + 6000);
+    expect(r.months[1].budget).toBe(5200);
+    expect(r.months[6].budget).toBe(9100 + 6000); // T3 = 273 → 91 al mese
+    expect(r.months.reduce((t, c) => t + c.budget, 0)).toBe(90000);
   });
 
-  it('previsione: niente YTD; tetto dedicato sforato', () => {
-    expect(readLine(auto, lines, catMap, macroMap, a, 6)).toMatchObject({ budget: 177200, actual: 179000, committed: 27000, ytdBudget: null });
+  it('niente riporti: il disponibile del mese guarda solo quel mese', () => {
+    const r = readLine(common, lines, catMap, macroMap, a, 6);
+    // giugno: budget 65 (T2 = 195/3), speso 150, impegnato 30 → −115
+    expect(r.months[5]).toEqual({ budget: 6500, actual: 15000, committed: 3000 });
+    expect(r.monthAvailable).toBe(6500 - 15000 - 3000);
+    // febbraio sotto (+52 − 90 = sforamento), gennaio in risparmio
+    expect(r.months[0].budget - r.months[0].actual).toBeGreaterThan(0);
+    expect(r.months[1].budget - r.months[1].actual).toBeLessThan(0);
+  });
+
+  it('YTD = somma dei budget dei mesi trascorsi; vale anche per le previsioni', () => {
+    const r = readLine(common, lines, catMap, macroMap, a, 6);
+    expect(r.ytdBudget).toBe(11200 + 5200 + 5200 + 6500 * 3);
+    expect(r.ytdDelta).toBe(26000 - r.ytdBudget!);
+    const f = readLine(auto, lines, catMap, macroMap, a, 6);
+    // previsione: programmato a marzo (780) e giugno (270) + integrazione flat
+    expect(f.months[2].budget).toBe(78000 + 6016);
+    expect(f.ytdBudget).toBe(78000 + 27000 + 6016 * 6);
+    expect(f.monthAvailable).toBeNull(); // niente tetto mensile sulle previsioni
+    expect(readLine(stip, lines, catMap, macroMap, a, 6).ytdBudget).toBeNull();
+  });
+
+  it('tetto dedicato sforato', () => {
     expect(readLine(foto, lines, catMap, macroMap, a, 6).available).toBe(-11000);
   });
 
@@ -274,10 +306,10 @@ describe('lettura', () => {
 });
 
 describe('anno non ancora iniziato', () => {
-  it('niente YTD né "al mese" sui tetti', () => {
+  it('niente YTD né disponibile del mese sui tetti', () => {
     const l = line({ macro_id: 'pass', integration_original: 900 });
     const r = readLine(l, [l], catMap, macroMap, { actual: new Map(), committed: new Map() }, 0);
     expect(r.ytdBudget).toBeNull();
-    expect(r.perMonth).toBeNull();
+    expect(r.monthAvailable).toBeNull();
   });
 });

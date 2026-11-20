@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
-  guideShares, historyOfLine, isUniform, membersOf, monthlyHistory, natureOf, profileFromMonths, programmedOfLine,
-  proposeIntegration, setMonthWeight, uniformProfile,
+  guideShares, historyOfLine, integrationMonths, membersOf, natureOf, programmedOfLine, proposeIntegration, scaleTo, spread,
 } from '../lib/budget';
 import { useBudgetData } from '../lib/budgetData';
 import { writeBudget } from '../lib/budgetWrite';
@@ -13,7 +12,7 @@ import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
 import { blankSync } from '../lib/masterWrite';
 import { toCents } from '../lib/money';
-import type { BudgetLine, BudgetSource } from '../lib/types';
+import type { BudgetLine, BudgetSource, Distribution } from '../lib/types';
 
 const MONTHS = 'GFMAMGLASOND';
 
@@ -53,18 +52,12 @@ function Form({ db, master, userId, currency, onBack, onDone, onSync, row, data,
   const [pct, setPct] = useState(String(row.adjust_pct ?? 0));
   const [amount, setAmount] = useState(row.source === 'history' ? '' : formatPlain(toCents(row.integration_original), locale));
   const [note, setNote] = useState(row.note ?? '');
-  const [profile, setProfile] = useState<number[]>(row.monthly_profile ?? uniformProfile());
-  const [lockedMonths, setLockedMonths] = useState<boolean[]>(() => {
-    const p = row.monthly_profile;
-    if (!p) return Array(12).fill(false);
-    // un mese diverso dal valore più frequente è stato ritoccato a mano
-    const counts = new Map<number, number>();
-    p.forEach((x) => counts.set(x, (counts.get(x) ?? 0) + 1));
-    const common = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    return p.map((x) => x !== common);
-  });
-  const [editing, setEditing] = useState<number | null>(null);
-  const [weight, setWeight] = useState('');
+  const [dist, setDist] = useState<Distribution>(row.distribution ?? 'flat');
+  const [quarters, setQuarters] = useState<string[]>(() =>
+    row.distribution === 'quarterly' && row.distribution_values ? row.distribution_values.map((x) => fmtNum(x, locale)) : ['25', '25', '25', '25']);
+  const [manual, setManual] = useState<string[]>(() =>
+    (row.distribution === 'manual' && row.distribution_values ? row.distribution_values.map(toCents) : spread(toCents(row.integration_original), 12))
+      .map((c) => fmtNum(c / 100, locale)));
   const [busy, setBusy] = useState(false);
 
   const money = (cents: number) =>
@@ -73,18 +66,34 @@ function Form({ db, master, userId, currency, onBack, onDone, onSync, row, data,
   const pctNum = Number(pct.replace(',', '.'));
   const pctOk = Number.isFinite(pctNum) && pctNum > -100;
   const typed = parseAmount(amount || '0');
-  const integration = source === 'history'
-    ? (base !== null && pctOk ? proposeIntegration(base, pctNum, programmed) : 0)
-    : Math.max(0, typed ?? 0);
-  const invalid = (source === 'history' && (base === null || !pctOk)) || (source !== 'history' && (typed === null || typed < 0));
+  const manualCents = manual.map((x) => parseAmount(x || '0'));
+  const manualOk = manualCents.every((c) => c !== null && c >= 0);
+  const quarterNums = quarters.map((x) => Number(x.replace(',', '.')));
+  const quartersOk = quarterNums.every((x) => Number.isFinite(x) && x >= 0) && Math.round(quarterNums.reduce((t, x) => t + x, 0) * 100) === 10000;
+  const useManual = dist === 'manual' && nature !== 'income';
+  const integration = useManual
+    ? (manualOk ? manualCents.reduce<number>((t, c) => t + (c ?? 0), 0) : 0)
+    : source === 'history'
+      ? (base !== null && pctOk ? proposeIntegration(base, pctNum, programmed) : 0)
+      : Math.max(0, typed ?? 0);
+  const invalid = useManual
+    ? !manualOk
+    : (source === 'history' && (base === null || !pctOk)) || (source !== 'history' && (typed === null || typed < 0)) || (dist === 'quarterly' && !quartersOk);
   const total = programmed + integration;
 
   const itemsHere = data.items.filter((i) => members.includes(i.categoryId));
   const actual = members.reduce((s, c) => s + (data.actuals.actual.get(c) ?? 0), 0);
   const name = row.category_id ? master.categoryById.get(row.category_id)?.name ?? '' : master.macroById.get(row.macro_id!)?.name ?? '';
   const macroId = row.macro_id ?? master.categoryById.get(row.category_id!)?.macro_id;
-  const histMonths = useMemo(() => monthlyHistory(data.refs, members, year - 1), [data.refs, members, year]);
-  const fromHistory = profileFromMonths(histMonths);
+  // anteprima mese per mese: programmato nei mesi reali + integrazione con la curva scelta
+  const preview = useMemo(() => {
+    const prog = Array<number>(12).fill(0);
+    for (const id of members) (data.actuals.programmedM?.get(id) ?? []).forEach((v, i) => (prog[i] += v));
+    const vals = dist === 'quarterly' ? quarterNums : dist === 'manual' ? manualCents.map((c) => (c ?? 0) / 100) : null;
+    const integ = integrationMonths({ integration_original: integration / 100, distribution: nature === 'income' ? 'flat' : dist, distribution_values: vals });
+    return scaleTo(prog, programmed).map((p, i) => p + integ[i]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members.join(), data.actuals, dist, quarters, manual, integration, programmed]);
 
   // tetti dedicati: dalla scheda del tetto comune si staccano e si riattaccano le categorie
   const discCats = row.macro_id
@@ -114,32 +123,19 @@ function Form({ db, master, userId, currency, onBack, onDone, onSync, row, data,
     onSync();
   }
 
-  function pickMonth(i: number) {
-    if (locked) return;
-    setEditing(i);
-    setWeight(String(profile[i]).replace('.', ','));
-  }
-  function applyWeight() {
-    if (editing === null) return;
-    const v = Number(weight.replace(',', '.'));
-    if (!Number.isFinite(v) || v < 0) return;
-    const next = setMonthWeight(profile, lockedMonths, editing, v);
-    setProfile(next);
-    setLockedMonths(lockedMonths.map((x, i) => x || i === editing));
-    setEditing(null);
-  }
-
   async function save() {
     if (invalid || busy || locked) return;
     setBusy(true);
     const next: BudgetLine = {
       ...row,
-      source,
-      history_base: source === 'history' && base !== null ? base / 100 : null,
-      adjust_pct: source === 'history' ? pctNum : null,
+      source: useManual ? 'manual' : source,
+      history_base: !useManual && source === 'history' && base !== null ? base / 100 : null,
+      adjust_pct: !useManual && source === 'history' ? pctNum : null,
       programmed_original: programmed / 100,
       integration_original: integration / 100,
-      monthly_profile: isCap && !isUniform(profile) ? profile : null,
+      monthly_profile: null,
+      distribution: nature === 'income' ? 'flat' : dist,
+      distribution_values: nature === 'income' || dist === 'flat' ? null : dist === 'quarterly' ? quarterNums : manualCents.map((c) => (c ?? 0) / 100),
       note: note.trim() || null,
       reviewed: true,
     };
@@ -171,6 +167,7 @@ function Form({ db, master, userId, currency, onBack, onDone, onSync, row, data,
 
       <section className="card">
         <h2>{t('bu.integration')}</h2>
+        {useManual ? <p className="muted small">{t('bu.integration.manual')}</p> : <>
         <div className="segmented md-wide" role="group" aria-label={t('bu.source')}>
           {(['history', 'known', 'manual'] as const).map((s) => (
             <button key={s} type="button" aria-pressed={source === s} disabled={locked} onClick={() => setSource(s)}>{t(`bu.src.${s}`)}</button>
@@ -202,6 +199,7 @@ function Form({ db, master, userId, currency, onBack, onDone, onSync, row, data,
             </label>
           </>
         )}
+        </>}
         <div className="row bu-sep"><span className="small strong">{t('bu.integration')}</span><span className="num small strong">{money(integration)}</span></div>
       </section>
 
@@ -210,35 +208,48 @@ function Form({ db, master, userId, currency, onBack, onDone, onSync, row, data,
         <p className="muted tiny">{t('bu.formula', { prog: money(programmed), int: money(integration) })}</p>
       </section>
 
-      {isCap && (
+      {nature !== 'income' && (
         <section className="card">
-          <div className="row">
-            <h2>{t('bu.profile')}</h2>
-            {!locked && (
-              <span className="row-tight">
-                <button type="button" className="ghost" onClick={() => { setProfile(uniformProfile()); setLockedMonths(Array(12).fill(false)); }}>{t('bu.profile.uniform')}</button>
-                {fromHistory && <button type="button" className="ghost" onClick={() => { setProfile(fromHistory); setLockedMonths(Array(12).fill(true)); }}>{t('bu.profile.history')}</button>}
-              </span>
-            )}
-          </div>
-          <div className="bu-profile">
-            {profile.map((w, i) => (
-              <button key={i} type="button" className={editing === i ? 'bu-month on' : 'bu-month'} aria-label={t('bu.profile.month', { month: monthName(i, locale), pct: fmtPct(w, locale) })} onClick={() => pickMonth(i)}>
-                <span className="tiny num">{fmtPct(w, locale)}</span>
-                <span className="bu-col" style={{ height: `${Math.max(2, (w / Math.max(...profile, 1)) * 80)}px`, background: lockedMonths[i] ? 'var(--accent)' : '#3a4a63' }} />
-                <span className="tiny muted">{MONTHS[i]}</span>
-              </button>
+          <div className="row"><h2>{t('bu.dist')}</h2><span className="muted tiny">{t(isCap ? 'bu.dist.capHint' : 'bu.dist.forecastHint')}</span></div>
+          <div className="segmented md-wide" role="group" aria-label={t('bu.dist')}>
+            {(['flat', 'quarterly', 'manual'] as const).map((d) => (
+              <button key={d} type="button" aria-pressed={dist === d} disabled={locked} onClick={() => {
+                if (d === 'manual' && dist !== 'manual') setManual(spread(integration, 12).map((c) => fmtNum(c / 100, locale)));
+                setDist(d);
+              }}>{t(`bu.dist.${d}`)}</button>
             ))}
           </div>
-          {editing !== null && (
-            <div className="row-fields">
-              <label className="grow">{t('bu.profile.weight', { month: monthName(editing, locale) })}
-                <input inputMode="decimal" value={weight} autoFocus onChange={(e) => setWeight(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && applyWeight()} />
-              </label>
-              <button type="button" className="secondary bu-apply" onClick={applyWeight}>{t('bu.profile.apply')}</button>
+          {dist === 'quarterly' && (
+            <>
+              <div className="bu-quarters">
+                {quarters.map((q, i) => (
+                  <label key={i}>{t('bu.dist.q', { n: i + 1 })}
+                    <input inputMode="decimal" value={q} disabled={locked} onChange={(e) => setQuarters(quarters.map((x, k) => (k === i ? e.target.value : x)))} />
+                  </label>
+                ))}
+              </div>
+              <p className={quartersOk ? 'muted tiny' : 'tiny bu-warn'}>{t('bu.dist.qSum', { pct: fmtNum(quarterNums.reduce((x, y) => x + (Number.isFinite(y) ? y : 0), 0), locale) })}</p>
+            </>
+          )}
+          {dist === 'manual' && (
+            <div className="bu-manual">
+              {manual.map((v, i) => (
+                <label key={i}>{monthName(i, locale)}
+                  <input inputMode="decimal" value={v} disabled={locked} onChange={(e) => setManual(manual.map((x, k) => (k === i ? e.target.value : x)))} />
+                </label>
+              ))}
             </div>
           )}
-          <p className="muted tiny">{t('bu.profile.hint')}</p>
+          <div className="bu-profile" aria-label={t('bu.dist.preview')}>
+            {preview.map((c, i) => (
+              <span key={i} className="bu-month">
+                <span className="tiny num">{Math.round(c / 100)}</span>
+                <span className="bu-col" style={{ height: `${Math.max(2, (c / Math.max(...preview, 1)) * 70)}px` }} />
+                <span className="tiny muted">{MONTHS[i]}</span>
+              </span>
+            ))}
+          </div>
+          <p className="muted tiny">{t(isCap ? 'bu.dist.noCarry' : 'bu.dist.ytdOnly')}</p>
         </section>
       )}
 
@@ -275,5 +286,5 @@ function Form({ db, master, userId, currency, onBack, onDone, onSync, row, data,
 }
 
 const monthName = (i: number, locale: string) => new Date(2027, i, 1).toLocaleDateString(locale, { month: 'long' });
-const fmtPct = (w: number, locale: string) => `${w.toLocaleString(locale, { maximumFractionDigits: 2 })}%`;
+const fmtNum = (x: number, locale: string) => x.toLocaleString(locale, { maximumFractionDigits: 2, useGrouping: false });
 const formatPlain = (cents: number, locale: string) => (cents / 100).toLocaleString(locale, { maximumFractionDigits: 2, useGrouping: false });

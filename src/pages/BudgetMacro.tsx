@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
-import { byMacro, guideShares, readBudget, type LineReading } from '../lib/budget';
+import { byMacro, guideShares, monthIndex, readBudget, type LineReading } from '../lib/budget';
 import { useBudgetData } from '../lib/budgetData';
 import type { QuadraDB } from '../lib/db';
 import { todayISO } from '../lib/dates';
 import type { MasterData } from '../lib/hooks';
 import { useI18n } from '../lib/i18n';
 import type { Nav } from '../lib/nav';
-import { CapFacts, Numbers, UseBar } from './Budget';
+import { LineFacts, MonthStrip, Numbers, UseBar } from './Budget';
 
 /** Dettaglio di una macro nella lettura: previsioni per categoria, tetto comune e tetti dedicati. */
 export function BudgetMacro({ db, master, nav, year, macroId, currency }: {
@@ -39,14 +39,15 @@ export function BudgetMacro({ db, master, nav, year, macroId, currency }: {
         <Numbers budget={lr.budget} actual={lr.actual} committed={lr.committed} available={lr.available} money={money} />
         <UseBar budget={lr.budget} actual={lr.actual} committed={lr.committed} color={macro?.color ?? 'var(--accent)'} over={lr.available < 0} />
         {lr.available < 0 && lr.nature === 'dedicated' && <span className="bu-alert tiny"><i className="ph ph-warning" aria-hidden="true" /> {t('bu.overDedicatedLong')}</span>}
-        <CapFacts lr={lr} money={money} />
+        <LineFacts lr={lr} money={money} />
+        {(lr.nature === 'common' || lr.nature === 'dedicated') && <MonthStrip lr={lr} nowMonth={monthIndex(year, today)} money={money} locale={locale} />}
         {shares && lr.members.map((id) => (
           <div key={id} className="row bu-fact">
             <span className="small muted">{catName(id)}{shares.get(id) ? <span className="tiny"> · {t('bu.guide', { pct: Math.round(shares.get(id)! * 100) })}</span> : null}</span>
             <span className="num small">{money(data.actuals.actual.get(id) ?? 0)}</span>
           </div>
         ))}
-        {lr.line.monthly_profile && <p className="muted tiny">{t('bu.hasProfile')}</p>}
+        {lr.line.distribution && lr.line.distribution !== 'flat' && <p className="muted tiny">{t(`bu.dist.has.${lr.line.distribution}`)}</p>}
         <button type="button" className="ghost" onClick={() => nav.go({ name: 'budgetLine', id: lr.line.id })}>{t('bu.openLine')}</button>
       </section>
     );

@@ -111,7 +111,8 @@ async function pushBudgetLine(db: QuadraDB, id: string): Promise<void> {
     id: l.id, budget_id: l.budget_id, category_id: l.category_id, macro_id: l.macro_id, source: l.source,
     history_base: l.history_base, adjust_pct: l.adjust_pct, programmed_original: l.programmed_original,
     integration_original: l.integration_original, programmed_revised: l.programmed_revised,
-    integration_revised: l.integration_revised, monthly_profile: l.monthly_profile, reviewed: l.reviewed, note: l.note,
+    integration_revised: l.integration_revised, monthly_profile: l.monthly_profile,
+    distribution: l.distribution ?? 'flat', distribution_values: l.distribution_values ?? null, reviewed: l.reviewed, note: l.note,
     client_modified_at: l.client_modified_at, deleted_at: l.deleted_at,
   });
   check(error);
@@ -434,7 +435,9 @@ async function pullBudgets(db: QuadraDB): Promise<void> {
           source: r.source, history_base: numOrNull(r.history_base), adjust_pct: numOrNull(r.adjust_pct),
           programmed_original: num(r.programmed_original), integration_original: num(r.integration_original),
           programmed_revised: numOrNull(r.programmed_revised), integration_revised: numOrNull(r.integration_revised),
-          monthly_profile: r.monthly_profile ? r.monthly_profile.map(num) : null, reviewed: r.reviewed, note: r.note,
+          monthly_profile: r.monthly_profile ? r.monthly_profile.map(num) : null,
+          distribution: r.distribution ?? 'flat', distribution_values: r.distribution_values ? r.distribution_values.map(num) : null,
+          reviewed: r.reviewed, note: r.note,
           updated_at: r.updated_at, client_modified_at: r.client_modified_at, deleted_at: r.deleted_at,
         });
       }

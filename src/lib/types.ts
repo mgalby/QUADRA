@@ -153,6 +153,7 @@ export interface Budget extends SyncFields {
 }
 
 export type BudgetSource = 'history' | 'known' | 'manual';
+export type Distribution = 'flat' | 'quarterly' | 'manual';
 
 /**
  * Riga di budget: con categoria (previsione se essenziale, tetto dedicato se
@@ -170,7 +171,10 @@ export interface BudgetLine extends SyncFields {
   integration_original: number;
   programmed_revised: number | null;  // dalla 1.2
   integration_revised: number | null; // dalla 1.2
-  monthly_profile: number[] | null;   // 12 pesi che sommano a 100; null = uniforme
+  monthly_profile: number[] | null;   // superato dalla 1.1.1 (patch v2.1): resta vuoto
+  /** Curva dell'integrazione sui mesi: flat, 4 % per trimestre, 12 importi in euro (la loro somma è l'integrazione). */
+  distribution?: Distribution;        // assente sulle righe scaricate prima della 1.1.1 = flat
+  distribution_values?: number[] | null;
   reviewed: boolean;
   note: string | null;
 }

@@ -502,3 +502,17 @@ label.bu-switch.wide { justify-content: space-between; }
 label.bu-switch input { width: 40px; height: 24px; padding: 0; accent-color: var(--accent); }
 .bu-save { padding: 0 18px; }
 .bu-form h1 { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bu-red { color: #f08a8a; }
+.bu-quarters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.bu-manual { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.bu-manual input, .bu-quarters input { height: 40px; padding: 0 8px; min-width: 0; width: 100%; }
+.bu-manual label { text-transform: capitalize; }
+.bu-strip { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+.bu-cell { height: 22px; border-radius: 5px; background: var(--line); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.bu-cell.ok { background: #4cc38a33; color: var(--positive); }
+.bu-cell.ko { background: #e6676740; color: #f08a8a; }
+.bu-cell.now { outline: 1px solid var(--accent); color: var(--text); }
+.bu-mrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.bu-mlabel { text-transform: capitalize; min-width: 170px; text-align: center; }
+.bu-profile .bu-month { min-height: 100px; }
+.bu-profile .bu-col { background: #3a4a63; }

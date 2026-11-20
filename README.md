@@ -63,6 +63,15 @@ public/
 
 ## Stato
 
+v1.1.1 — Budget mese per mese (richiede `quadra_patch_v2_1.sql`). Ogni riga ha una curva di
+ripartizione dell'integrazione: Flat (1/12), Trimestrale (4 % che sommano 100) o Manuale (12 importi
+in euro, la loro somma è l'integrazione); il programmato cade nei mesi reali delle scadenze. Ogni
+mese ha il suo budget, senza riporti né compensazioni: nella lettura l'interruttore Anno / Mese
+mostra i tetti del mese (verde il risparmio, rosso lo sforamento, nel mese in corso quanto resta
+tolto l'impegnato); il YTD vale per tetti e previsioni; nel dettaglio della macro una striscia di
+12 caselle per ogni tetto. Il vecchio profilo mensile è superato (la patch lo converte in curva
+manuale). `qa/v110.mjs`: 36 controlli.
+
 v1.1.0 — Budget, prima tranche (richiede `quadra_schema_v2.sql` sul database). Nuova voce
 **Budget** nella barra in basso. Storico di riferimento (saldi letti da Monefy per categoria o
 macro, anno o mese, con "straordinaria"); costruzione del budget dell'anno con le proposte: ogni

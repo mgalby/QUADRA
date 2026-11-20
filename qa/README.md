@@ -25,7 +25,8 @@ danno e il ripristino.
 `v110.mjs` prova il Budget: storico di riferimento (saldi, doppioni, totale di controllo,
 straordinaria), costruzione del 2027 con le proposte, importo noto, tetto dedicato e bozza viva,
 profilo mensile, approvazione e riapertura a due tocchi, lettura, dettaglio della macro, backup
-con le tabelle del budget. 31 controlli.
+con le tabelle del budget; dalla v1.1.1 anche curve trimestrale e manuale, vista Mese e strisce
+dei 12 mesi. 36 controlli.
 
 Nota: in `v080.mjs` il controllo "Coop compare solo per la quota Tech" fallisce dalla v0.8.1,
 perché le liste delle Statistiche seguono il mese in evidenza (agosto, in quel punto del test).

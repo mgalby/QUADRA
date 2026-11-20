@@ -20,48 +20,50 @@ export type LineNature = 'forecast' | 'dedicated' | 'common' | 'income';
 const yearOf = (iso: string) => Number(iso.slice(0, 4));
 const live = <T extends { deleted_at: string | null }>(rows: T[]) => rows.filter((r) => !r.deleted_at);
 
-// ----- profilo mensile -------------------------------------------------------
+// ----- ripartizione sui mesi ---------------------------------------------------
+//
+// Il programmato cade nei mesi reali delle sue scadenze; l'integrazione si ripartisce
+// con la curva della riga: flat (1/12), trimestrale (4 % che sommano 100, ognuna divisa
+// in parti uguali sui suoi 3 mesi) o manuale (12 importi in euro). Ogni mese ha il suo
+// budget: niente riporti né compensazioni tra un mese e l'altro (decisione del 20 novembre).
 
-/** 12 pesi che sommano esattamente a 100 (8,33 × 11 + 8,37). */
-export function uniformProfile(): number[] {
-  return spread(10000, 12).map((h) => h / 100);
+/** Divide n centesimi in parti uguali; l'ultima prende il resto. */
+export function spread(cents: number, n: number): number[] {
+  const base = Math.floor(cents / n);
+  return Array.from({ length: n }, (_, i) => (i === n - 1 ? cents - base * (n - 1) : base));
 }
 
-/** Divide n centesimi di punto in parti uguali; l'ultima prende il resto. */
-function spread(hundredths: number, n: number): number[] {
-  const base = Math.floor(hundredths / n);
-  return Array.from({ length: n }, (_, i) => (i === n - 1 ? hundredths - base * (n - 1) : base));
+const zeros = () => Array<number>(12).fill(0);
+const addInto = (target: number[], src: number[]) => src.forEach((v, i) => (target[i] += v));
+
+/** Integrazione della riga mese per mese (centesimi, 12 valori). */
+export function integrationMonths(line: Pick<BudgetLine, 'integration_original' | 'distribution' | 'distribution_values'>): number[] {
+  const total = toCents(line.integration_original);
+  const kind = line.distribution ?? 'flat';
+  const vals = line.distribution_values;
+  if (kind === 'manual' && vals?.length === 12) return vals.map(toCents);
+  if (kind === 'quarterly' && vals?.length === 4) {
+    let used = 0;
+    const quarters = vals.map((p, q) => {
+      const c = q === 3 ? total - used : Math.round((total * toCents(p)) / 10000);
+      used += c;
+      return c;
+    });
+    return quarters.flatMap((c) => spread(c, 3));
+  }
+  return spread(total, 12);
 }
 
-const toH = (w: number) => Math.round(w * 100);
-
-/**
- * Ritocco di un mese: il valore scelto resta, i mesi già ritoccati (locked) restano,
- * gli altri si dividono il resto in parti uguali. La somma resta esattamente 100.
- */
-export function setMonthWeight(weights: number[], locked: boolean[], month: number, value: number): number[] {
-  const w = weights.map(toH);
-  const lockedSum = w.reduce((s, x, i) => (i !== month && locked[i] ? s + x : s), 0);
-  const free = w.map((_, i) => i).filter((i) => i !== month && !locked[i]);
-  let v = Math.max(0, Math.min(toH(value), 10000 - lockedSum));
-  if (free.length === 0) v = 10000 - lockedSum; // nessun mese libero: il valore deve chiudere a 100
-  const out = [...w];
-  out[month] = v;
-  const parts = spread(10000 - lockedSum - v, free.length);
-  free.forEach((i, k) => (out[i] = parts[k]));
-  return out.map((h) => h / 100);
+/** Riporta dei valori mensili a un totale, in proporzione (l'ultimo mese con valore prende il resto). */
+export function scaleTo(months: number[], target: number): number[] {
+  const total = months.reduce((s, x) => s + x, 0);
+  if (total === target) return [...months];
+  if (total <= 0) return spread(target, 12);
+  const out = months.map((x) => Math.floor((x * target) / total));
+  const last = months.reduce((k, x, i) => (x > 0 ? i : k), 11);
+  out[last] += target - out.reduce((s, x) => s + x, 0);
+  return out;
 }
-
-/** Profilo da importi mensili (centesimi per mese, 12 valori); null se non c'è nulla. */
-export function profileFromMonths(monthCents: number[]): number[] | null {
-  const total = monthCents.reduce((s, x) => s + Math.max(0, x), 0);
-  if (total <= 0) return null;
-  const h = monthCents.map((x) => Math.floor((Math.max(0, x) * 10000) / total));
-  h[11] += 10000 - h.reduce((s, x) => s + x, 0);
-  return h.map((x) => x / 100);
-}
-
-export const isUniform = (p: number[] | null) => !p || p.every((x, i) => toH(x) === toH(uniformProfile()[i]));
 
 // ----- natura e perimetro di una riga ----------------------------------------
 
@@ -93,6 +95,8 @@ export interface ProgrammedItem {
   cents: number;
   count: number;      // scadenze dell'anno
   pending: number;    // di cui non ancora generate (centesimi): vanno nell'impegnato
+  months: number[];        // centesimi per mese (12)
+  pendingMonths: number[]; // di cui non ancora generati, per mese
 }
 
 export interface ProgrammedInput {
@@ -120,13 +124,15 @@ export function programmedItems(input: ProgrammedInput): ProgrammedItem[] {
   for (const rec of recs) {
     if (rec.deleted_at) continue;
     const mine = byRec.get(rec.id) ?? [];
-    const item: ProgrammedItem = { recurrenceId: rec.id, name: rec.name, categoryId: rec.category_id, cents: 0, count: 0, pending: 0 };
+    const item: ProgrammedItem = { recurrenceId: rec.id, name: rec.name, categoryId: rec.category_id, cents: 0, count: 0, pending: 0, months: zeros(), pendingMonths: zeros() };
+    const month0 = (d: string) => Number(d.slice(5, 7)) - 1;
     const seen = new Set(mine.map((t) => t.occurrence_date));
     // già generate: contano per quello che sono (una cancellata è una scadenza saltata)
     for (const t of mine) {
       const d = t.occurrence_date ?? t.tx_date;
       if (d < from || d > to || t.deleted_at) continue;
       item.cents += toCents(t.total);
+      item.months[month0(d)] += toCents(t.total);
       item.count++;
     }
     // non ancora generate: solo se la ricorrenza è attiva
@@ -146,6 +152,8 @@ export function programmedItems(input: ProgrammedInput): ProgrammedItem[] {
         }
         item.cents += cents;
         item.pending += cents;
+        item.months[month0(date)] += cents;
+        item.pendingMonths[month0(date)] += cents;
         item.count++;
       };
       if (rec.kind === 'plan') {
@@ -171,23 +179,41 @@ export function sumByCategory(items: { categoryId: string; cents: number }[]): M
 export interface Actuals {
   actual: Map<string, number>;    // centesimi per categoria
   committed: Map<string, number>;
+  actualM?: Map<string, number[]>;     // per categoria e mese (12)
+  committedM?: Map<string, number[]>;
+  programmedM?: Map<string, number[]>; // programmato per categoria e mese
 }
 
 /** Consuntivo e impegnato dell'anno per categoria, in competenza. */
 export function actualsOf(txs: Transaction[], year: number, today: string, items: ProgrammedItem[]): Actuals {
   const actual = new Map<string, number>();
   const committed = new Map<string, number>();
+  const actualM = new Map<string, number[]>();
+  const committedM = new Map<string, number[]>();
+  const programmedM = new Map<string, number[]>();
   const add = (m: Map<string, number>, k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v);
+  const addM = (m: Map<string, number[]>, k: string, month: number, v: number) => {
+    if (!m.has(k)) m.set(k, zeros());
+    m.get(k)![month] += v;
+  };
   for (const tx of txs) {
     if (tx.deleted_at) continue;
     for (const s of slicesOf(tx, 'accrual', today)) {
       if (yearOf(s.date) !== year) continue;
-      for (const sh of lineShares(tx, s.cents)) add(s.scheduled ? committed : actual, sh.line.category_id, sh.cents);
+      const month = Number(s.date.slice(5, 7)) - 1;
+      for (const sh of lineShares(tx, s.cents)) {
+        add(s.scheduled ? committed : actual, sh.line.category_id, sh.cents);
+        addM(s.scheduled ? committedM : actualM, sh.line.category_id, month, sh.cents);
+      }
     }
   }
   // scadenze di ricorrenze e rate che l'app non ha ancora generato
-  for (const i of items) if (i.pending > 0) add(committed, i.categoryId, i.pending);
-  return { actual, committed };
+  for (const i of items) {
+    if (i.pending > 0) add(committed, i.categoryId, i.pending);
+    i.pendingMonths.forEach((v, m) => v && addM(committedM, i.categoryId, m, v));
+    i.months.forEach((v, m) => v && addM(programmedM, i.categoryId, m, v));
+  }
+  return { actual, committed, actualM, committedM, programmedM };
 }
 
 // ----- storico di riferimento ------------------------------------------------
@@ -198,17 +224,6 @@ export function historyOfCategory(refs: ReferenceBalance[], categoryId: string, 
   if (rows.length === 0) return null;
   const annual = rows.filter((r) => r.month === null);
   return (annual.length > 0 ? annual : rows).reduce((s, r) => s + toCents(r.amount), 0);
-}
-
-/** Importi mensili (12 valori, centesimi) di un insieme di categorie, senza straordinarie. */
-export function monthlyHistory(refs: ReferenceBalance[], categoryIds: string[], year: number): number[] {
-  const set = new Set(categoryIds);
-  const out = Array(12).fill(0);
-  for (const r of live(refs)) {
-    if (r.year !== year || r.extraordinary || r.month === null || !r.category_id || !set.has(r.category_id)) continue;
-    out[r.month - 1] += toCents(r.amount);
-  }
-  return out;
 }
 
 /**
@@ -315,7 +330,8 @@ export function refreshDraft(
   for (const l of live(lines)) {
     const prog = programmedOfLine(l, lines, categories, programmed) / 100;
     const next: BudgetLine = { ...l, programmed_original: prog };
-    if (!l.reviewed) {
+    // con la curva manuale l'integrazione è la somma dei mesi: la bozza viva non la tocca
+    if (!l.reviewed && l.distribution !== 'manual') {
       const base = historyOfLine(l, lines, refs, categories, year);
       if (l.source === 'history' && base !== null) {
         next.history_base = base / 100;
@@ -353,6 +369,12 @@ export function monthIndex(year: number, today: string): number {
   return Number(today.slice(5, 7));
 }
 
+export interface MonthCell {
+  budget: number;     // budget del mese: programmato nel suo mese + integrazione ripartita
+  actual: number;
+  committed: number;
+}
+
 export interface LineReading {
   line: BudgetLine;
   nature: LineNature;
@@ -361,10 +383,21 @@ export interface LineReading {
   actual: number;
   committed: number;
   available: number;
-  /** Solo per i tetti. */
+  months: MonthCell[];      // 12 mesi, senza riporti
+  /** Uscite (previsioni e tetti), da quando l'anno è iniziato. */
   ytdBudget: number | null;
   ytdDelta: number | null;  // consuntivo − budget YTD: negativo = sotto
-  perMonth: number | null;  // quanto si può spendere nel mese corrente
+  /** Solo tetti, nel mese corrente: tetto del mese − speso − impegnato del mese. */
+  monthAvailable: number | null;
+}
+
+/** Budget di ogni mese di una riga: il programmato nei mesi reali (riportato al valore congelato) più l'integrazione. */
+export function lineMonths(line: BudgetLine, members: string[], a: Actuals): number[] {
+  const prog = zeros();
+  for (const id of members) addInto(prog, a.programmedM?.get(id) ?? zeros());
+  const out = scaleTo(prog, toCents(line.programmed_original));
+  addInto(out, integrationMonths(line));
+  return out;
 }
 
 export function readLine(
@@ -373,25 +406,31 @@ export function readLine(
   const nature = natureOf(line, categories, macros);
   const members = membersOf(line, lines, categories);
   const sum = (m: Map<string, number>) => members.reduce((s, id) => s + (m.get(id) ?? 0), 0);
+  const sumM = (m: Map<string, number[]> | undefined) => {
+    const out = zeros();
+    for (const id of members) addInto(out, m?.get(id) ?? zeros());
+    return out;
+  };
   const budget = lineBudget(line);
   const actual = sum(a.actual);
   const committed = sum(a.committed);
-  const available = budget - actual - committed;
+  const bm = lineMonths(line, members, a);
+  const am = sumM(a.actualM);
+  const cm = sumM(a.committedM);
+  const months = bm.map((b, i) => ({ budget: b, actual: am[i], committed: cm[i] }));
   let ytdBudget: number | null = null;
   let ytdDelta: number | null = null;
-  let perMonth: number | null = null;
-  // prima che l'anno inizi YTD e "al mese" non dicono nulla
-  if ((nature === 'common' || nature === 'dedicated') && month >= 1) {
-    const w = (line.monthly_profile ?? uniformProfile()).map(toH);
-    const elapsed = w.slice(0, Math.min(month, 12)).reduce((s, x) => s + x, 0);
-    ytdBudget = Math.round((budget * elapsed) / 10000);
+  let monthAvailable: number | null = null;
+  // prima che l'anno inizi YTD e mese non dicono nulla; le entrate non si controllano qui
+  if (nature !== 'income' && month >= 1) {
+    ytdBudget = bm.slice(0, Math.min(month, 12)).reduce((s, x) => s + x, 0);
     ytdDelta = actual - ytdBudget;
-    if (month >= 1 && month <= 12) {
-      const rest = w.slice(month - 1).reduce((s, x) => s + x, 0);
-      perMonth = rest > 0 ? Math.max(0, Math.round((available * w[month - 1]) / rest)) : 0;
+    if ((nature === 'common' || nature === 'dedicated') && month <= 12) {
+      const c = months[month - 1];
+      monthAvailable = c.budget - c.actual - c.committed;
     }
   }
-  return { line, nature, members, budget, actual, committed, available, ytdBudget, ytdDelta, perMonth };
+  return { line, nature, members, budget, actual, committed, available: budget - actual - committed, months, ytdBudget, ytdDelta, monthAvailable };
 }
 
 export interface BudgetReading {
